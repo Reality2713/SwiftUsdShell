@@ -290,6 +290,28 @@ public struct USDPrimTree: Hashable, Sendable, Codable, Identifiable {
     }
 }
 
+public extension USDPrimTree {
+    var displayName: String {
+        name.rawValue.isEmpty ? path.rawValue : name.rawValue
+    }
+
+    var nodeCount: Int {
+        1 + children.reduce(0) { $0 + $1.nodeCount }
+    }
+
+    func first(path targetPath: USDPath) -> USDPrimTree? {
+        if path == targetPath {
+            return self
+        }
+        for child in children {
+            if let match = child.first(path: targetPath) {
+                return match
+            }
+        }
+        return nil
+    }
+}
+
 public enum SwiftUsdShellError: Error, Equatable, Sendable {
     case missingStage(USDStageHandle)
     case missingPrim(USDPrimHandle)

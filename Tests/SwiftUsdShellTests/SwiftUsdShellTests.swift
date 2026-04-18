@@ -75,3 +75,28 @@ func primTreesArePureSwiftAndCodable() throws {
     #expect(decoded == tree)
     #expect(decoded.id == "/")
 }
+
+@Test
+func primTreeTraversalHelpersFindAndCountNodes() {
+    let tree = USDPrimTree(
+        path: "/",
+        name: "",
+        children: [
+            USDPrimTree(
+                path: "/Root",
+                name: "Root",
+                typeName: "Xform",
+                children: [
+                    USDPrimTree(path: "/Root/Mesh", name: "Mesh", typeName: "Mesh"),
+                    USDPrimTree(path: "/Root/Looks", name: "", typeName: "Scope"),
+                ]
+            ),
+        ]
+    )
+
+    #expect(tree.nodeCount == 4)
+    #expect(tree.displayName == "/")
+    #expect(tree.first(path: "/Root/Mesh")?.displayName == "Mesh")
+    #expect(tree.first(path: "/Root/Looks")?.displayName == "/Root/Looks")
+    #expect(tree.first(path: "/Missing") == nil)
+}
