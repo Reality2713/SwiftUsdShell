@@ -55,6 +55,10 @@ func valueSummariesArePureSwiftAndCodable() throws {
     #expect(decoded.attributes.first?.value == USDValue.array([
         USDValue.vector3(USDVector3(x: 1, y: 0.5, z: 0.25)),
     ]))
+    #expect(decoded.typeNameText == "Mesh")
+    #expect(decoded.visibilityText == "inherited")
+    #expect(decoded.purposeText == "default")
+    #expect(decoded.kindText == "component")
 }
 
 @Test
@@ -96,7 +100,10 @@ func primTreeTraversalHelpersFindAndCountNodes() {
 
     #expect(tree.nodeCount == 4)
     #expect(tree.displayName == "/")
+    #expect(tree.typeNameText == "")
+    #expect(tree.purposeText == "default")
     #expect(tree.first(path: "/Root/Mesh")?.displayName == "Mesh")
+    #expect(tree.first(path: "/Root/Mesh")?.typeNameText == "Mesh")
     #expect(tree.first(path: "/Root/Looks")?.displayName == "/Root/Looks")
     #expect(tree.first(path: "/Missing") == nil)
 }

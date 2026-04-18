@@ -267,6 +267,24 @@ public struct USDPrimSummary: Hashable, Sendable, Codable {
     }
 }
 
+public extension USDPrimSummary {
+    var typeNameText: String {
+        typeName?.rawValue ?? ""
+    }
+
+    var visibilityText: String {
+        visibility?.rawValue ?? "inherited"
+    }
+
+    var purposeText: String {
+        purpose?.rawValue ?? "default"
+    }
+
+    var kindText: String {
+        kind?.rawValue ?? ""
+    }
+}
+
 public struct USDPrimTree: Hashable, Sendable, Codable, Identifiable {
     public var id: USDPath { path }
     public var path: USDPath
@@ -293,6 +311,14 @@ public struct USDPrimTree: Hashable, Sendable, Codable, Identifiable {
 public extension USDPrimTree {
     var displayName: String {
         name.rawValue.isEmpty ? path.rawValue : name.rawValue
+    }
+
+    var typeNameText: String {
+        typeName?.rawValue ?? ""
+    }
+
+    var purposeText: String {
+        purpose?.rawValue ?? "default"
     }
 
     var nodeCount: Int {
