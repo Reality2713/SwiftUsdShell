@@ -199,17 +199,26 @@ public struct USDAttributeSummary: Hashable, Sendable, Codable {
     public var name: USDToken
     public var typeName: String
     public var value: USDValue?
+    public var isAuthored: Bool
+    public var hasValue: Bool
+    public var timeSampleCount: Int
     public var timeSamples: [USDTimeCode]
 
     public init(
         name: USDToken,
         typeName: String,
         value: USDValue? = nil,
+        isAuthored: Bool = false,
+        hasValue: Bool = false,
+        timeSampleCount: Int = 0,
         timeSamples: [USDTimeCode] = []
     ) {
         self.name = name
         self.typeName = typeName
         self.value = value
+        self.isAuthored = isAuthored
+        self.hasValue = hasValue
+        self.timeSampleCount = timeSampleCount
         self.timeSamples = timeSamples
     }
 }

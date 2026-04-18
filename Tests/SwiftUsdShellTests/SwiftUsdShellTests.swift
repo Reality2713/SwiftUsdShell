@@ -30,12 +30,17 @@ func valueSummariesArePureSwiftAndCodable() throws {
                 value: .array([
                     .vector3(USDVector3(x: 1, y: 0.5, z: 0.25)),
                 ]),
+                isAuthored: true,
+                hasValue: true,
+                timeSampleCount: 0,
                 timeSamples: [.default]
             ),
             USDAttributeSummary(
                 name: "asset",
                 typeName: "asset",
-                value: .assetPath("textures/baseColor.png")
+                value: .assetPath("textures/baseColor.png"),
+                isAuthored: true,
+                hasValue: true
             ),
         ],
         relationships: [
