@@ -19,6 +19,10 @@ func valueSummariesArePureSwiftAndCodable() throws {
         path: "/Root/Cube",
         name: "Cube",
         typeName: "Mesh",
+        isActive: true,
+        visibility: "inherited",
+        purpose: "default",
+        kind: "component",
         attributes: [
             USDAttributeSummary(
                 name: "displayColor",

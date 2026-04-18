@@ -197,6 +197,10 @@ public struct USDPrimSummary: Hashable, Sendable, Codable {
     public var path: USDPath
     public var name: USDToken
     public var typeName: USDToken?
+    public var isActive: Bool
+    public var visibility: USDToken?
+    public var purpose: USDToken?
+    public var kind: USDToken?
     public var attributes: [USDAttributeSummary]
     public var relationships: [USDRelationshipSummary]
 
@@ -204,12 +208,20 @@ public struct USDPrimSummary: Hashable, Sendable, Codable {
         path: USDPath,
         name: USDToken,
         typeName: USDToken? = nil,
+        isActive: Bool = true,
+        visibility: USDToken? = nil,
+        purpose: USDToken? = nil,
+        kind: USDToken? = nil,
         attributes: [USDAttributeSummary] = [],
         relationships: [USDRelationshipSummary] = []
     ) {
         self.path = path
         self.name = name
         self.typeName = typeName
+        self.isActive = isActive
+        self.visibility = visibility
+        self.purpose = purpose
+        self.kind = kind
         self.attributes = attributes
         self.relationships = relationships
     }
