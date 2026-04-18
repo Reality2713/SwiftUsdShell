@@ -14,6 +14,19 @@ func handlesAreHashableAndCodable() throws {
 }
 
 @Test
+func stageURLsAreTypedAndCodable() throws {
+    let rawURL = URL(fileURLWithPath: "/tmp/../tmp/model.usda")
+    let stageURL = USDStageURL(rawURL)
+
+    #expect(stageURL.url == rawURL.standardizedFileURL)
+    #expect(stageURL.description == rawURL.standardizedFileURL.path)
+
+    let encoded = try JSONEncoder().encode(stageURL)
+    let decoded = try JSONDecoder().decode(USDStageURL.self, from: encoded)
+    #expect(decoded == stageURL)
+}
+
+@Test
 func valueSummariesArePureSwiftAndCodable() throws {
     let summary = USDPrimSummary(
         path: "/Root/Cube",

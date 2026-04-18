@@ -1,7 +1,21 @@
+import Foundation
+
 /// Pure Swift handles and identifiers for APIs backed by SwiftUsd/OpenUSD.
 ///
 /// This module must not import SwiftUsd, OpenUSD, or any C++ interop target.
 /// Runtime packages own the mapping between these handles and native USD objects.
+public struct USDStageURL: Hashable, Sendable, Codable, CustomStringConvertible {
+    public let url: URL
+
+    public init(_ url: URL) {
+        self.url = url.standardizedFileURL
+    }
+
+    public var description: String {
+        url.path
+    }
+}
+
 public struct USDStageHandle: Hashable, Sendable, Codable {
     public let rawValue: UInt64
 
