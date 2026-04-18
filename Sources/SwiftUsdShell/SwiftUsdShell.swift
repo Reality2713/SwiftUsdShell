@@ -79,6 +79,142 @@ public enum USDLoadPolicy: Hashable, Sendable, Codable {
     case loadNone
 }
 
+public enum USDValue: Hashable, Sendable, Codable {
+    case bool(Bool)
+    case int(Int64)
+    case double(Double)
+    case string(String)
+    case token(USDToken)
+    case assetPath(USDAssetPath)
+    case vector2(USDVector2)
+    case vector3(USDVector3)
+    case vector4(USDVector4)
+    case matrix4x4(USDMatrix4x4)
+    case array([USDValue])
+    case unsupported(typeName: String, description: String)
+}
+
+public struct USDVector2: Hashable, Sendable, Codable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
+
+public struct USDVector3: Hashable, Sendable, Codable {
+    public var x: Double
+    public var y: Double
+    public var z: Double
+
+    public init(x: Double, y: Double, z: Double) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+}
+
+public struct USDVector4: Hashable, Sendable, Codable {
+    public var x: Double
+    public var y: Double
+    public var z: Double
+    public var w: Double
+
+    public init(x: Double, y: Double, z: Double, w: Double) {
+        self.x = x
+        self.y = y
+        self.z = z
+        self.w = w
+    }
+}
+
+public struct USDMatrix4x4: Hashable, Sendable, Codable {
+    public var values: [Double]
+
+    public init(values: [Double]) {
+        self.values = values
+    }
+}
+
+public struct USDTimeCode: Hashable, Sendable, Codable {
+    public enum Kind: Hashable, Sendable, Codable {
+        case `default`
+        case earliest
+        case numeric(Double)
+    }
+
+    public var kind: Kind
+
+    public init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static var `default`: Self {
+        Self(.default)
+    }
+
+    public static var earliest: Self {
+        Self(.earliest)
+    }
+
+    public static func numeric(_ value: Double) -> Self {
+        Self(.numeric(value))
+    }
+}
+
+public struct USDAttributeSummary: Hashable, Sendable, Codable {
+    public var name: USDToken
+    public var typeName: String
+    public var value: USDValue?
+    public var timeSamples: [USDTimeCode]
+
+    public init(
+        name: USDToken,
+        typeName: String,
+        value: USDValue? = nil,
+        timeSamples: [USDTimeCode] = []
+    ) {
+        self.name = name
+        self.typeName = typeName
+        self.value = value
+        self.timeSamples = timeSamples
+    }
+}
+
+public struct USDRelationshipSummary: Hashable, Sendable, Codable {
+    public var name: USDToken
+    public var targets: [USDPath]
+
+    public init(name: USDToken, targets: [USDPath] = []) {
+        self.name = name
+        self.targets = targets
+    }
+}
+
+public struct USDPrimSummary: Hashable, Sendable, Codable {
+    public var path: USDPath
+    public var name: USDToken
+    public var typeName: USDToken?
+    public var attributes: [USDAttributeSummary]
+    public var relationships: [USDRelationshipSummary]
+
+    public init(
+        path: USDPath,
+        name: USDToken,
+        typeName: USDToken? = nil,
+        attributes: [USDAttributeSummary] = [],
+        relationships: [USDRelationshipSummary] = []
+    ) {
+        self.path = path
+        self.name = name
+        self.typeName = typeName
+        self.attributes = attributes
+        self.relationships = relationships
+    }
+}
+
 public enum SwiftUsdShellError: Error, Equatable, Sendable {
     case missingStage(USDStageHandle)
     case missingPrim(USDPrimHandle)
