@@ -94,6 +94,37 @@ public enum USDValue: Hashable, Sendable, Codable {
     case unsupported(typeName: String, description: String)
 }
 
+public extension USDValue {
+    var displayDescription: String {
+        switch self {
+        case .bool(let value):
+            value ? "true" : "false"
+        case .int(let value):
+            String(value)
+        case .double(let value):
+            String(value)
+        case .string(let value):
+            value
+        case .token(let value):
+            value.rawValue
+        case .assetPath(let value):
+            value.rawValue
+        case .vector2(let value):
+            "(\(value.x), \(value.y))"
+        case .vector3(let value):
+            "(\(value.x), \(value.y), \(value.z))"
+        case .vector4(let value):
+            "(\(value.x), \(value.y), \(value.z), \(value.w))"
+        case .matrix4x4(let value):
+            value.values.map { String($0) }.joined(separator: ", ")
+        case .array(let values):
+            values.map(\.displayDescription).joined(separator: ", ")
+        case .unsupported(_, let description):
+            description
+        }
+    }
+}
+
 public struct USDVector2: Hashable, Sendable, Codable {
     public var x: Double
     public var y: Double
