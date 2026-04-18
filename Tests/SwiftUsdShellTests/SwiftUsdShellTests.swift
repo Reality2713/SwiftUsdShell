@@ -56,3 +56,22 @@ func valueSummariesArePureSwiftAndCodable() throws {
         USDValue.vector3(USDVector3(x: 1, y: 0.5, z: 0.25)),
     ]))
 }
+
+@Test
+func primTreesArePureSwiftAndCodable() throws {
+    let tree = USDPrimTree(
+        path: "/",
+        name: "",
+        typeName: nil,
+        purpose: "default",
+        children: [
+            USDPrimTree(path: "/Root", name: "Root", typeName: "Xform"),
+        ]
+    )
+
+    let encoded = try JSONEncoder().encode(tree)
+    let decoded = try JSONDecoder().decode(USDPrimTree.self, from: encoded)
+
+    #expect(decoded == tree)
+    #expect(decoded.id == "/")
+}

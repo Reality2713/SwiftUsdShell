@@ -267,6 +267,29 @@ public struct USDPrimSummary: Hashable, Sendable, Codable {
     }
 }
 
+public struct USDPrimTree: Hashable, Sendable, Codable, Identifiable {
+    public var id: USDPath { path }
+    public var path: USDPath
+    public var name: USDToken
+    public var typeName: USDToken?
+    public var purpose: USDToken?
+    public var children: [USDPrimTree]
+
+    public init(
+        path: USDPath,
+        name: USDToken,
+        typeName: USDToken? = nil,
+        purpose: USDToken? = nil,
+        children: [USDPrimTree] = []
+    ) {
+        self.path = path
+        self.name = name
+        self.typeName = typeName
+        self.purpose = purpose
+        self.children = children
+    }
+}
+
 public enum SwiftUsdShellError: Error, Equatable, Sendable {
     case missingStage(USDStageHandle)
     case missingPrim(USDPrimHandle)
