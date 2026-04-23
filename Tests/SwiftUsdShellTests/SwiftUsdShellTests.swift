@@ -94,6 +94,32 @@ func primTreesArePureSwiftAndCodable() throws {
 }
 
 @Test
+func stageMetadataIsPureSwiftAndCodable() throws {
+    let metadata = USDStageMetadata(
+        upAxis: "Y",
+        metersPerUnit: 0.01,
+        defaultPrimName: "Robot",
+        autoPlay: true,
+        playbackMode: "loop",
+        timeCodesPerSecond: 60,
+        startTimeCode: 0,
+        endTimeCode: 148,
+        animationTracks: ["/Robot/Animation"],
+        availableCameras: ["/Robot/Camera"]
+    )
+
+    #expect(metadata.hasAnimationTracks)
+    #expect(metadata.hasUsableTimelineRange)
+
+    let encoded = try JSONEncoder().encode(metadata)
+    let decoded = try JSONDecoder().decode(USDStageMetadata.self, from: encoded)
+
+    #expect(decoded == metadata)
+    #expect(decoded.animationTracks.first?.rawValue == "/Robot/Animation")
+    #expect(decoded.availableCameras.first?.rawValue == "/Robot/Camera")
+}
+
+@Test
 func primTreeTraversalHelpersFindAndCountNodes() {
     let tree = USDPrimTree(
         path: "/",

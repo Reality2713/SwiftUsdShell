@@ -322,6 +322,54 @@ public struct USDPrimTree: Hashable, Sendable, Codable, Identifiable {
     }
 }
 
+public struct USDStageMetadata: Hashable, Sendable, Codable {
+    public var upAxis: USDToken?
+    public var metersPerUnit: Double?
+    public var defaultPrimName: USDToken?
+    public var autoPlay: Bool?
+    public var playbackMode: String?
+    public var timeCodesPerSecond: Double?
+    public var startTimeCode: Double?
+    public var endTimeCode: Double?
+    public var animationTracks: [USDPath]
+    public var availableCameras: [USDPath]
+
+    public init(
+        upAxis: USDToken? = nil,
+        metersPerUnit: Double? = nil,
+        defaultPrimName: USDToken? = nil,
+        autoPlay: Bool? = nil,
+        playbackMode: String? = nil,
+        timeCodesPerSecond: Double? = nil,
+        startTimeCode: Double? = nil,
+        endTimeCode: Double? = nil,
+        animationTracks: [USDPath] = [],
+        availableCameras: [USDPath] = []
+    ) {
+        self.upAxis = upAxis
+        self.metersPerUnit = metersPerUnit
+        self.defaultPrimName = defaultPrimName
+        self.autoPlay = autoPlay
+        self.playbackMode = playbackMode
+        self.timeCodesPerSecond = timeCodesPerSecond
+        self.startTimeCode = startTimeCode
+        self.endTimeCode = endTimeCode
+        self.animationTracks = animationTracks
+        self.availableCameras = availableCameras
+    }
+}
+
+public extension USDStageMetadata {
+    var hasAnimationTracks: Bool {
+        animationTracks.isEmpty == false
+    }
+
+    var hasUsableTimelineRange: Bool {
+        guard let startTimeCode, let endTimeCode else { return false }
+        return endTimeCode > startTimeCode
+    }
+}
+
 public extension USDPrimTree {
     var displayName: String {
         name.rawValue.isEmpty ? path.rawValue : name.rawValue
