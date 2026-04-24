@@ -120,6 +120,51 @@ func stageMetadataIsPureSwiftAndCodable() throws {
 }
 
 @Test
+func materialEditContractsArePureSwiftAndCodable() throws {
+    let request = USDMaterialEditRequest(
+        stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/session.usda")),
+        materialPath: "/Root/Looks/Body",
+        channel: .diffuseColor,
+        operation: .setTexture(
+            sourceURL: USDStageURL(URL(fileURLWithPath: "/tmp/replacement.png")),
+            authoredAssetPath: "../Resources/replacement.png"
+        ),
+        policy: .preserveAuthoredMode
+    )
+    let prepared = USDPreparedMaterialEdit(
+        request: request,
+        branchPlan: USDMaterialEditBranchPlan(
+            branchTargets: [
+                USDMaterialEditBranchTarget(output: .usdPreviewSurface, applicability: .direct),
+            ],
+            targetOutputs: [.usdPreviewSurface],
+            requiresConversion: false,
+            preservesAuthoredMode: true
+        )
+    )
+    let result = USDMaterialEditResult(
+        resultingMode: .usdPreviewSurface,
+        changedPrimPaths: ["/Root/Looks/Body"],
+        changedAssetPaths: ["../Resources/replacement.png"]
+    )
+
+    #expect(prepared.readiness == .fullySupported)
+    #expect(prepared.requiresUserAttention == false)
+
+    let encodedRequest = try JSONEncoder().encode(request)
+    let decodedRequest = try JSONDecoder().decode(USDMaterialEditRequest.self, from: encodedRequest)
+    #expect(decodedRequest == request)
+
+    let encodedPrepared = try JSONEncoder().encode(prepared)
+    let decodedPrepared = try JSONDecoder().decode(USDPreparedMaterialEdit.self, from: encodedPrepared)
+    #expect(decodedPrepared == prepared)
+
+    let encodedResult = try JSONEncoder().encode(result)
+    let decodedResult = try JSONDecoder().decode(USDMaterialEditResult.self, from: encodedResult)
+    #expect(decodedResult == result)
+}
+
+@Test
 func primTreeTraversalHelpersFindAndCountNodes() {
     let tree = USDPrimTree(
         path: "/",
