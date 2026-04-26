@@ -632,6 +632,107 @@ public struct USDTransformInspection: Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Statistics & Model Info DTOs
+
+public struct USDGeometryStatistics: Hashable, Sendable, Codable {
+    public var totalTriangles: Int
+    public var totalVertices: Int
+    public var meshCount: Int
+    public var materialCount: Int
+    public var textureCount: Int
+
+    public init(
+        totalTriangles: Int = 0,
+        totalVertices: Int = 0,
+        meshCount: Int = 0,
+        materialCount: Int = 0,
+        textureCount: Int = 0
+    ) {
+        self.totalTriangles = totalTriangles
+        self.totalVertices = totalVertices
+        self.meshCount = meshCount
+        self.materialCount = materialCount
+        self.textureCount = textureCount
+    }
+}
+
+public enum USDAnimatableStatus: String, Hashable, Sendable, Codable {
+    case animatable
+    case static_
+    case unknown
+}
+
+public struct USDBlendShapeInfo: Hashable, Sendable, Codable {
+    public var path: String
+    public var name: String
+    public var weightCount: Int
+    public var weightNames: [String]
+
+    public init(
+        path: String,
+        name: String,
+        weightCount: Int = 0,
+        weightNames: [String] = []
+    ) {
+        self.path = path
+        self.name = name
+        self.weightCount = weightCount
+        self.weightNames = weightNames
+    }
+}
+
+public struct USDModelInfo: Hashable, Sendable, Codable {
+    public var boundsExtent: SIMD3<Float>
+    public var boundsCenter: SIMD3<Float>
+    public var scale: SIMD3<Float>
+    public var upAxis: String
+    public var animationCount: Int
+    public var animationNames: [String]
+    public var metersPerUnit: Double
+    public var autoPlay: Bool?
+    public var playbackMode: String?
+    public var animatableStatus: USDAnimatableStatus
+    public var hasAnimationLibrary: Bool
+    public var skeletonJointCount: Int
+    public var maxJointInfluences: Int
+    public var hasSkinnedMesh: Bool
+    public var blendShapes: [USDBlendShapeInfo]
+
+    public init(
+        boundsExtent: SIMD3<Float> = .zero,
+        boundsCenter: SIMD3<Float> = .zero,
+        scale: SIMD3<Float> = .one,
+        upAxis: String = "Unknown",
+        animationCount: Int = 0,
+        animationNames: [String] = [],
+        metersPerUnit: Double = 1.0,
+        autoPlay: Bool? = nil,
+        playbackMode: String? = nil,
+        animatableStatus: USDAnimatableStatus = .unknown,
+        hasAnimationLibrary: Bool = false,
+        skeletonJointCount: Int = 0,
+        maxJointInfluences: Int = 0,
+        hasSkinnedMesh: Bool = false,
+        blendShapes: [USDBlendShapeInfo] = []
+    ) {
+        self.boundsExtent = boundsExtent
+        self.boundsCenter = boundsCenter
+        self.scale = scale
+        self.upAxis = upAxis
+        self.animationCount = animationCount
+        self.animationNames = animationNames
+        self.metersPerUnit = metersPerUnit
+        self.autoPlay = autoPlay
+        self.playbackMode = playbackMode
+        self.animatableStatus = animatableStatus
+        self.hasAnimationLibrary = hasAnimationLibrary
+        self.skeletonJointCount = skeletonJointCount
+        self.maxJointInfluences = maxJointInfluences
+        self.hasSkinnedMesh = hasSkinnedMesh
+        self.blendShapes = blendShapes
+    }
+}
+
 // MARK: - Material Editing DTOs
 
 public enum USDMaterialSurfaceOutputFamily: String, Hashable, Sendable, Codable, CaseIterable {
