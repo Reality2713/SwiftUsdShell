@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 /// Pure Swift handles and identifiers for APIs backed by SwiftUsd/OpenUSD.
 ///
@@ -499,6 +500,48 @@ public struct USDMaterialBindingInfo: Hashable, Sendable, Codable {
         self.authoredMaterialPath = authoredMaterialPath
         self.bindingSourcePrimPath = bindingSourcePrimPath
         self.bindingStrength = bindingStrength
+    }
+}
+
+// MARK: - Transform Inspection DTOs
+
+public struct USDTransformData: Hashable, Sendable, Codable {
+    public var position: SIMD3<Double>
+    public var rotationDegrees: SIMD3<Double>
+    public var scale: SIMD3<Double>
+
+    public init(
+        position: SIMD3<Double> = .zero,
+        rotationDegrees: SIMD3<Double> = .zero,
+        scale: SIMD3<Double> = SIMD3<Double>(repeating: 1)
+    ) {
+        self.position = position
+        self.rotationDegrees = rotationDegrees
+        self.scale = scale
+    }
+}
+
+public enum USDTransformEditCapability: String, Hashable, Sendable, Codable {
+    case editableCommon
+    case editablePivoted
+    case editableSeparateEuler
+    case readonlyAnimated
+    case readonlyMatrix
+    case readonlyOrient
+    case readonlyUnsupportedCustomStack
+    case notXformable
+
+    public var isEditable: Bool {
+        switch self {
+        case .editableCommon, .editablePivoted, .editableSeparateEuler:
+            true
+        case .readonlyAnimated,
+             .readonlyMatrix,
+             .readonlyOrient,
+             .readonlyUnsupportedCustomStack,
+             .notXformable:
+            false
+        }
     }
 }
 
