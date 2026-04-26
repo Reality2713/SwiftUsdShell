@@ -545,6 +545,93 @@ public enum USDTransformEditCapability: String, Hashable, Sendable, Codable {
     }
 }
 
+public enum USDTransformEditRestriction: String, Hashable, Sendable, Codable {
+    case animatedTransformOp
+    case matrixTransformOp
+    case orientTransformOp
+    case partialEulerStack
+    case customTransformStack
+    case unsupportedPivotStack
+    case unsupportedOp
+    case nonXformablePrim
+}
+
+public enum USDAuthoredXformOpKind: Hashable, Sendable, Codable {
+    case translate
+    case rotateXYZ
+    case rotateX
+    case rotateY
+    case rotateZ
+    case scale
+    case pivot
+    case orient
+    case transform
+    case custom(token: String)
+}
+
+public enum USDAuthoredXformOpPrecision: String, Hashable, Sendable, Codable {
+    case half
+    case float
+    case double
+    case unknown
+}
+
+public enum USDAuthoredXformOpValue: Hashable, Sendable, Codable {
+    case vector3(SIMD3<Double>)
+    case scalar(Double)
+    case text(String)
+}
+
+public struct USDAuthoredXformOp: Hashable, Sendable, Codable {
+    public var token: String
+    public var kind: USDAuthoredXformOpKind
+    public var precision: USDAuthoredXformOpPrecision
+    public var isInverseOp: Bool
+    public var isAuthored: Bool
+    public var isTimeSampled: Bool
+    public var value: USDAuthoredXformOpValue?
+
+    public init(
+        token: String,
+        kind: USDAuthoredXformOpKind,
+        precision: USDAuthoredXformOpPrecision,
+        isInverseOp: Bool = false,
+        isAuthored: Bool = true,
+        isTimeSampled: Bool = false,
+        value: USDAuthoredXformOpValue? = nil
+    ) {
+        self.token = token
+        self.kind = kind
+        self.precision = precision
+        self.isInverseOp = isInverseOp
+        self.isAuthored = isAuthored
+        self.isTimeSampled = isTimeSampled
+        self.value = value
+    }
+}
+
+public struct USDTransformInspection: Hashable, Sendable, Codable {
+    public var localTransform: USDTransformData
+    public var authoredOps: [USDAuthoredXformOp]
+    public var editCapability: USDTransformEditCapability
+    public var restrictionReason: USDTransformEditRestriction?
+    public var isAnimated: Bool
+
+    public init(
+        localTransform: USDTransformData = .init(),
+        authoredOps: [USDAuthoredXformOp] = [],
+        editCapability: USDTransformEditCapability = .notXformable,
+        restrictionReason: USDTransformEditRestriction? = nil,
+        isAnimated: Bool = false
+    ) {
+        self.localTransform = localTransform
+        self.authoredOps = authoredOps
+        self.editCapability = editCapability
+        self.restrictionReason = restrictionReason
+        self.isAnimated = isAnimated
+    }
+}
+
 // MARK: - Material Editing DTOs
 
 public enum USDMaterialSurfaceOutputFamily: String, Hashable, Sendable, Codable, CaseIterable {
