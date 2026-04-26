@@ -605,7 +605,6 @@ public extension USDPreparedMaterialEdit {
         readiness != .fullySupported
     }
 }
-
 public enum SwiftUsdShellError: Error, Equatable, Sendable {
     case missingStage(USDStageHandle)
     case missingPrim(USDPrimHandle)
