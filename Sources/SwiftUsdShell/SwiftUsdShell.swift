@@ -466,6 +466,42 @@ public struct USDMaterialSummary: Hashable, Sendable, Codable, Identifiable {
     }
 }
 
+public enum USDMaterialBindingStrength: String, Hashable, Sendable, Codable, CaseIterable {
+    case fallbackStrength
+    case weakerThanDescendants
+    case strongerThanDescendants
+
+    public var displayName: String {
+        switch self {
+        case .fallbackStrength: return "Default"
+        case .weakerThanDescendants: return "Weaker"
+        case .strongerThanDescendants: return "Stronger"
+        }
+    }
+}
+
+public struct USDMaterialBindingInfo: Hashable, Sendable, Codable {
+    public var selectedPrimPath: USDPath
+    public var effectiveMaterialPath: USDPath?
+    public var authoredMaterialPath: USDPath?
+    public var bindingSourcePrimPath: USDPath?
+    public var bindingStrength: USDMaterialBindingStrength?
+
+    public init(
+        selectedPrimPath: USDPath,
+        effectiveMaterialPath: USDPath? = nil,
+        authoredMaterialPath: USDPath? = nil,
+        bindingSourcePrimPath: USDPath? = nil,
+        bindingStrength: USDMaterialBindingStrength? = nil
+    ) {
+        self.selectedPrimPath = selectedPrimPath
+        self.effectiveMaterialPath = effectiveMaterialPath
+        self.authoredMaterialPath = authoredMaterialPath
+        self.bindingSourcePrimPath = bindingSourcePrimPath
+        self.bindingStrength = bindingStrength
+    }
+}
+
 // MARK: - Material Editing DTOs
 
 public enum USDMaterialSurfaceOutputFamily: String, Hashable, Sendable, Codable, CaseIterable {
