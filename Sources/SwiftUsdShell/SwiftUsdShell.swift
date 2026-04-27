@@ -634,6 +634,25 @@ public struct USDTransformInspection: Hashable, Sendable, Codable {
 
 // MARK: - Statistics & Model Info DTOs
 
+public struct USDSceneBounds: Hashable, Sendable, Codable {
+    public var min: SIMD3<Float>
+    public var max: SIMD3<Float>
+    public var center: SIMD3<Float>
+    public var maxExtent: Float
+
+    public init(
+        min: SIMD3<Float> = .zero,
+        max: SIMD3<Float> = .zero,
+        center: SIMD3<Float> = .zero,
+        maxExtent: Float = 0
+    ) {
+        self.min = min
+        self.max = max
+        self.center = center
+        self.maxExtent = maxExtent
+    }
+}
+
 public struct USDGeometryStatistics: Hashable, Sendable, Codable {
     public var totalTriangles: Int
     public var totalVertices: Int
