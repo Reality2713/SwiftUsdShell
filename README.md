@@ -8,6 +8,10 @@ This package is not a USD runtime. Importing SwiftUsdShell alone does not open,
 inspect, validate, render, or edit USD files. A separate runtime package or
 application service must implement these contracts and map them to a USD engine.
 
+The optional `SwiftUsdShellOpenUSD` product is the mechanical OpenUSD-backed
+adapter. Applications that only need contracts can depend on `SwiftUsdShell`;
+applications that need execution can also depend on `SwiftUsdShellOpenUSD`.
+
 For the full layering model, see
 [Docs/Architecture.md](Docs/Architecture.md).
 
@@ -56,10 +60,10 @@ depend on this shell.
 ## Runtime Adapter Direction
 
 SwiftUsdShell should be paired with a separate generic runtime adapter, such as
-`SwiftUsdShellOpenUSD` or `SwiftUsdScene`, when an application needs to execute
-USD work. That adapter may import SwiftUsd/OpenUSD and implement shell protocols,
-but it must stay mechanical: open stages, inspect prims, perform generic edits,
-and map results back into shell DTOs.
+`SwiftUsdShellOpenUSD`, when an application needs to execute USD work. That
+adapter may import SwiftUsd/OpenUSD and implement shell protocols, but it must
+stay mechanical: open stages, inspect prims, perform generic edits, and map
+results back into shell DTOs.
 
 Application/domain layers remain above both packages. They own editor
 identity, import/export policy, selection mapping, component authoring,

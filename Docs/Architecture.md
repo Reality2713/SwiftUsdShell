@@ -30,7 +30,9 @@ Not allowed here:
 
 Purpose: how shell requests are answered using SwiftUsd/OpenUSD.
 
-This layer is the generic runtime adapter. It may live as a separate product in this repository or as a separate package, but it must not be part of the base `SwiftUsdShell` product.
+This layer is the generic runtime adapter. In this package it is exposed as the
+separate `SwiftUsdShellOpenUSD` product. It must not be part of the base
+`SwiftUsdShell` product.
 
 Allowed here:
 
@@ -50,6 +52,19 @@ Not allowed here:
 - UI refresh policy beyond generic edit result hints
 
 This layer should be mechanical: call the runtime, map into shell DTOs, return results.
+
+The adapter should grow in the same groups that broad USD tooling tends to use:
+
+- stage metadata and prim hierarchy
+- prim identity, attributes, and relationships
+- composition arcs for references and payloads
+- variant sets and authored selections
+- transforms and bounds
+- generic material binding inspection
+- structured runtime diagnostics
+
+Import/export policy, texture packaging, renderer publication, validation
+strategy, and editor workflow decisions remain application/domain concerns.
 
 ## 3. Application / Domain Layers
 

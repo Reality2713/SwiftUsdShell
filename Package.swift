@@ -14,14 +14,32 @@ let package = Package(
             name: "SwiftUsdShell",
             targets: ["SwiftUsdShell"]
         ),
+        .library(
+            name: "SwiftUsdShellOpenUSD",
+            targets: ["SwiftUsdShellOpenUSD"]
+        ),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/SwiftUsd", from: "6.1.0"),
     ],
     targets: [
         .target(
             name: "SwiftUsdShell"
         ),
+        .target(
+            name: "SwiftUsdShellOpenUSD",
+            dependencies: [
+                "SwiftUsdShell",
+                .product(name: "OpenUSD", package: "SwiftUsd"),
+            ],
+            swiftSettings: [
+                .interoperabilityMode(.Cxx),
+            ]
+        ),
         .testTarget(
             name: "SwiftUsdShellTests",
             dependencies: ["SwiftUsdShell"]
         ),
-    ]
+    ],
+    cxxLanguageStandard: .gnucxx17
 )
