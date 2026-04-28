@@ -1,20 +1,23 @@
 # SwiftUsdShell
 
 SwiftUsdShell is the pure Swift API boundary for USD-capable applications.
-It defines stable value types, handles, requests, and results that can be used
-without importing SwiftUsd, OpenUSD, USDInterop, or any Swift/C++ interop target.
+It defines stable value types, handles, requests, and results for USD-related
+inspection and editing APIs.
 
-SwiftUsd remains the runtime binding layer over OpenUSD. Packages such as
-USDTools own product workflows and runtime implementations behind this shell.
+This package is not a USD runtime. Importing SwiftUsdShell alone does not open,
+inspect, validate, render, or edit USD files. A separate runtime package or
+application service must implement these contracts and map them to a USD engine.
 
 ## Boundary Rules
 
-- SwiftUsdShell must not import SwiftUsd, OpenUSD, USDInterop, USDInteropCxx, or
-  C++ interop targets.
-- Public APIs must not expose `Usd*`, `Sdf*`, `Tf*`, `Vt*`, `Gf*`, `OpenUSD.*`,
-  or `pxrInternal_*` types.
-- Product workflow policy belongs above the shell, for example in USDTools.
-- Generic runtime primitives should move toward SwiftUsd when practical.
+- SwiftUsdShell must not import a USD runtime, C++ interop target, or private
+  bridge module.
+- Public APIs must not expose native USD runtime types such as `Usd*`, `Sdf*`,
+  `Tf*`, `Vt*`, `Gf*`, `OpenUSD.*`, or `pxrInternal_*`.
+- Product workflow policy belongs above the shell in consumer or domain
+  packages.
+- Runtime primitives belong in runtime implementation packages, not in this
+  contract package.
 - This package should stay small, value-oriented, Codable, Hashable, and
   Sendable wherever possible.
 
@@ -36,22 +39,21 @@ USDTools own product workflows and runtime implementations behind this shell.
 
 SwiftUsdShell intentionally does not contain:
 
-- RealityKit, Preflight, Gantry, or other product-specific concepts.
+- Renderer, application, or product-specific concepts.
 - Material edit planning policy, readiness, branch plans, or execution strategy.
-- Runtime stage caches, OpenUSD plugin registration, file format loading, or
-  C++ bridge APIs.
+- Runtime stage caches, plugin registration, file format loading, or bridge
+  APIs.
 
-Those concepts belong in runtime or product packages that depend on this shell.
+Those concepts belong in runtime, renderer, application, or domain packages that
+depend on this shell.
 
 ## Release Checklist
 
 Before tagging a public release:
 
 1. Run `swift test` in this package.
-2. Confirm no forbidden imports or product names are present:
-   `OpenUSD`, `USDInterop`, `USDInteropCxx`, `Cxx`, `RealityKit`, `Preflight`,
-   `Gantry`, or `realityKitGraph`.
+2. Confirm no runtime imports, bridge imports, C++ interop settings, or
+   product-specific names are present in source or tests.
 3. Confirm new public DTOs are Codable, Hashable, and Sendable unless there is a
    documented reason they cannot be.
-4. Confirm product/workflow logic stayed in USDTools or another higher-level
-   package.
+4. Confirm product and workflow logic stayed in a higher-level package.
