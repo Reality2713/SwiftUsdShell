@@ -9,9 +9,11 @@ typealias pxr = pxrInternal_v0_26_3__pxrReserved__
 typealias UsdStage = pxr.UsdStage
 typealias UsdStageRefPtr = pxr.UsdStageRefPtr
 typealias UsdPrim = pxr.UsdPrim
+typealias UsdRelationship = pxr.UsdRelationship
 typealias UsdTimeCode = pxr.UsdTimeCode
 typealias UsdGeomImageable = pxr.UsdGeomImageable
 typealias UsdGeomXformCommonAPI = pxr.UsdGeomXformCommonAPI
+typealias UsdShadeMaterialBindingAPI = pxr.UsdShadeMaterialBindingAPI
 typealias UsdModelAPI = pxr.UsdModelAPI
 typealias TfToken = pxr.TfToken
 typealias SdfPath = pxr.SdfPath
@@ -65,6 +67,9 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             compositionArcs: request.options.includeCompositionArcs ? compositionArcs(prim) : [],
             variantSets: request.options.includeVariantSets ? variantSets(prim) : [],
             transform: request.options.includeTransform ? transformInspection(prim, timeCode: request.options.timeCode) : nil,
+            materialBinding: request.options.includeMaterialBinding
+                ? materialBindingInfo(for: prim, selectedPath: request.primPath)
+                : nil,
             diagnostics: diagnostics
         )
     }
@@ -309,6 +314,116 @@ private extension OpenUSDStageRuntime {
         guard ok else {
             throw SwiftUsdShellError.invalidValue("Unable to author common transform")
         }
+    }
+
+    func materialBindingInfo(
+        for prim: UsdPrim,
+        selectedPath: USDPath
+    ) -> USDMaterialBindingInfo {
+        let selectedPrimPath = selectedPath.rawValue
+        let primTypeName = stableOwnedString(describing: prim.GetTypeName().GetString())
+
+        if primTypeName == "Material" {
+            return USDMaterialBindingInfo(
+                selectedPrimPath: selectedPath,
+                effectiveMaterialPath: selectedPath,
+                authoredMaterialPath: selectedPath,
+                bindingSourcePrimPath: selectedPath
+            )
+        }
+
+        let effectiveMaterialPath = effectiveMaterialPath(for: prim).map(USDPath.init)
+        let selectedSdfPath = prim.GetPath()
+        let purposeToken = TfToken(std.string("allPurpose"))
+
+        var authoredMaterialPath: USDPath?
+        var bindingSourcePrimPath: USDPath?
+        var bindingStrength: USDMaterialBindingStrength?
+        var currentPrim = prim
+
+        while currentPrim.IsValid() {
+            let authoredBinding = directBindingDetails(for: currentPrim, purposeToken: purposeToken)
+            if let targetPath = authoredBinding.targetPath {
+                let isInherited = currentPrim.GetPath() != selectedSdfPath
+                authoredMaterialPath = USDPath(targetPath)
+                bindingSourcePrimPath = USDPath(
+                    stableOwnedString(describing: currentPrim.GetPath().GetAsString())
+                )
+                bindingStrength = authoredBinding.strength
+                if isInherited, bindingStrength == .fallbackStrength {
+                    bindingStrength = .weakerThanDescendants
+                }
+                break
+            }
+
+            currentPrim = currentPrim.GetParent()
+        }
+
+        return USDMaterialBindingInfo(
+            selectedPrimPath: USDPath(selectedPrimPath),
+            effectiveMaterialPath: effectiveMaterialPath,
+            authoredMaterialPath: authoredMaterialPath,
+            bindingSourcePrimPath: bindingSourcePrimPath,
+            bindingStrength: bindingStrength
+        )
+    }
+
+    func effectiveMaterialPath(for prim: UsdPrim) -> String? {
+        let bindingAPI = UsdShadeMaterialBindingAPI(prim)
+        let material = bindingAPI.ComputeBoundMaterial()
+        if material.GetPrim().IsValid() {
+            return stableOwnedString(describing: material.GetPath().GetAsString())
+        }
+
+        let directRel = prim.GetRelationship(TfToken(std.string("material:binding")))
+        if directRel.IsValid(), let target = firstBindingTarget(from: directRel) {
+            return target
+        }
+
+        if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Mesh" {
+            var subsetTargets: Set<String> = []
+            for child in prim.GetChildren() {
+                if stableOwnedString(describing: child.GetTypeName().GetString()) != "GeomSubset" {
+                    continue
+                }
+                let subsetRel = child.GetRelationship(TfToken(std.string("material:binding")))
+                if subsetRel.IsValid(), let target = firstBindingTarget(from: subsetRel) {
+                    subsetTargets.insert(target)
+                }
+            }
+            if subsetTargets.count == 1 {
+                return subsetTargets.first
+            }
+        }
+
+        return nil
+    }
+
+    func directBindingDetails(
+        for prim: UsdPrim,
+        purposeToken: TfToken
+    ) -> (targetPath: String?, strength: USDMaterialBindingStrength?) {
+        let bindingAPI = UsdShadeMaterialBindingAPI(prim)
+        let rel = bindingAPI.GetDirectBindingRel(purposeToken)
+        if rel.IsValid(), let directTarget = firstBindingTarget(from: rel) {
+            let token = UsdShadeMaterialBindingAPI.GetMaterialBindingStrength(rel)
+            let raw = stableOwnedString(describing: token.GetString())
+            return (directTarget, USDMaterialBindingStrength(rawValue: raw) ?? .fallbackStrength)
+        }
+
+        let fallbackRel = prim.GetRelationship(TfToken(std.string("material:binding")))
+        if fallbackRel.IsValid(), let directTarget = firstBindingTarget(from: fallbackRel) {
+            return (directTarget, .fallbackStrength)
+        }
+
+        return (nil, nil)
+    }
+
+    func firstBindingTarget(from relationship: UsdRelationship) -> String? {
+        var targets = SdfPathVector()
+        _ = relationship.GetTargets(&targets)
+        guard !targets.empty() else { return nil }
+        return stableOwnedString(describing: targets[0].GetAsString())
     }
 }
 
