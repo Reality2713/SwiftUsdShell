@@ -12,6 +12,7 @@ typealias UsdPrim = pxr.UsdPrim
 typealias UsdRelationship = pxr.UsdRelationship
 typealias UsdTimeCode = pxr.UsdTimeCode
 typealias UsdGeomImageable = pxr.UsdGeomImageable
+typealias UsdGeomMesh = pxr.UsdGeomMesh
 typealias UsdGeomXformCommonAPI = pxr.UsdGeomXformCommonAPI
 typealias UsdShadeMaterialBindingAPI = pxr.UsdShadeMaterialBindingAPI
 typealias UsdModelAPI = pxr.UsdModelAPI
@@ -22,6 +23,8 @@ typealias SdfLayerOffset = pxr.SdfLayerOffset
 typealias SdfSpecifier = pxr.SdfSpecifier
 typealias GfVec3d = pxr.GfVec3d
 typealias GfVec3f = pxr.GfVec3f
+typealias VtIntArray = pxr.VtIntArray
+typealias VtVec3fArray = pxr.VtVec3fArray
 
 /// Mechanical runtime adapter that answers SwiftUsdShell requests with OpenUSD.
 ///
@@ -41,6 +44,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             stageURL: request.stageURL,
             metadata: metadata,
             primTree: tree,
+            statistics: request.options.includeStatistics ? geometryStatistics(stage.GetPseudoRoot()) : nil,
             diagnostics: collectDiagnostics {
                 _ = stage.GetPseudoRoot()
             }
@@ -175,6 +179,90 @@ private extension OpenUSDStageRuntime {
             purpose: purpose(prim),
             children: prim.GetChildren().map { primTree($0) }
         )
+    }
+
+    func geometryStatistics(_ root: UsdPrim) -> USDGeometryStatistics {
+        var totalTriangles = 0
+        var totalVertices = 0
+        var meshCount = 0
+        var materialCount = 0
+        var textureCount = 0
+
+        func visit(_ prim: UsdPrim) {
+            switch stableOwnedString(describing: prim.GetTypeName().GetString()) {
+            case "Mesh":
+                meshCount += 1
+                let meshCounts = meshGeometryCounts(prim)
+                totalTriangles += meshCounts.triangles
+                totalVertices += meshCounts.vertices
+
+            case "Material":
+                materialCount += 1
+
+            case "Shader":
+                if shaderIdentifier(prim)?.contains("UsdUVTexture") == true {
+                    textureCount += 1
+                }
+
+            default:
+                break
+            }
+
+            for child in prim.GetChildren() {
+                visit(child)
+            }
+        }
+
+        visit(root)
+
+        return USDGeometryStatistics(
+            totalTriangles: totalTriangles,
+            totalVertices: totalVertices,
+            meshCount: meshCount,
+            materialCount: materialCount,
+            textureCount: textureCount
+        )
+    }
+
+    func meshGeometryCounts(_ prim: UsdPrim) -> (triangles: Int, vertices: Int) {
+        let mesh = UsdGeomMesh(prim)
+        guard USDOverlay.GetPrim(mesh).IsValid() else {
+            return (0, 0)
+        }
+
+        var vertexCount = 0
+        var points = VtVec3fArray()
+        let pointsAttr = mesh.GetPointsAttr()
+        if pointsAttr.IsValid(), pointsAttr.Get(&points, UsdTimeCode.Default()) {
+            vertexCount = Int(points.size())
+        }
+
+        var triangleCount = 0
+        var faceVertexCounts = VtIntArray()
+        let faceCountsAttr = mesh.GetFaceVertexCountsAttr()
+        if faceCountsAttr.IsValid(), faceCountsAttr.Get(&faceVertexCounts, UsdTimeCode.Default()) {
+            for index in 0..<faceVertexCounts.size() {
+                let faceVertexCount = Int(faceVertexCounts[index])
+                if faceVertexCount >= 3 {
+                    triangleCount += faceVertexCount - 2
+                }
+            }
+        }
+
+        return (triangleCount, vertexCount)
+    }
+
+    func shaderIdentifier(_ prim: UsdPrim) -> String? {
+        let idAttr = prim.GetAttribute(TfToken(std.string("info:id")))
+        guard idAttr.IsValid() else { return nil }
+
+        var token = TfToken()
+        if idAttr.Get(&token, UsdTimeCode.Default()) {
+            let value = stableOwnedString(describing: token.GetString())
+            return value.isEmpty ? nil : value
+        }
+
+        return nil
     }
 
     func primSummary(

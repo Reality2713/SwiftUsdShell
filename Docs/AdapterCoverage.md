@@ -13,6 +13,8 @@ Stage inspection:
 - opens a stage with the requested load policy
 - reads stage metadata: up-axis, meters-per-unit, default prim, timeline range
 - optionally maps the prim hierarchy into `USDPrimTree`
+- optionally computes generic geometry statistics: mesh count, material count,
+  texture shader count, vertex count, and triangulated face count
 - returns OpenUSD diagnostics captured during inspection
 
 Prim inspection:
@@ -41,7 +43,6 @@ Generic edits:
 These contract fields exist in `SwiftUsdShell`, but the OpenUSD adapter does not
 yet populate them:
 
-- stage statistics
 - stage bounds
 - prim bounds
 - full authored xform-op stack details in transform inspection
