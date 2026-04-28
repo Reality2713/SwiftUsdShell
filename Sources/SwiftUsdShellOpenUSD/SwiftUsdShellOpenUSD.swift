@@ -59,6 +59,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             metadata: metadata,
             primTree: tree,
             statistics: request.options.includeStatistics ? geometryStatistics(stage.GetPseudoRoot()) : nil,
+            bounds: request.options.includeBounds ? sceneBounds(stage) : nil,
             diagnostics: collectDiagnostics {
                 _ = stage.GetPseudoRoot()
             }
@@ -89,6 +90,9 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 ? materialBindingInfo(for: prim, selectedPath: request.primPath)
                 : nil,
             statistics: request.options.includeStatistics ? geometryStatistics(prim) : nil,
+            bounds: request.options.includeBounds
+                ? sceneBounds(prim, timeCode: request.options.timeCode)
+                : nil,
             diagnostics: diagnostics
         )
     }
@@ -236,6 +240,80 @@ private extension OpenUSDStageRuntime {
             meshCount: meshCount,
             materialCount: materialCount,
             textureCount: textureCount
+        )
+    }
+
+    func sceneBounds(_ stage: UsdStage) -> USDSceneBounds? {
+        let defaultPrim = stage.GetDefaultPrim()
+        if defaultPrim.IsValid(), let bounds = sceneBounds(defaultPrim, timeCode: .default) {
+            return bounds
+        }
+        return combinedChildBounds(stage.GetPseudoRoot(), timeCode: .default)
+    }
+
+    func sceneBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
+        let imageable = UsdGeomImageable(prim)
+        if USDOverlay.GetPrim(imageable).IsValid(),
+           let bounds = sceneBounds(imageable, timeCode: timeCode) {
+            return bounds
+        }
+        return combinedChildBounds(prim, timeCode: timeCode)
+    }
+
+    func sceneBounds(_ imageable: UsdGeomImageable, timeCode: USDTimeCode) -> USDSceneBounds? {
+        let box = imageable.ComputeWorldBound(
+            openUSDTimeCode(timeCode),
+            TfToken(std.string("default")),
+            TfToken(std.string("render")),
+            TfToken(),
+            TfToken()
+        )
+        let range = box.GetRange()
+        let min = range.GetMin()
+        let max = range.GetMax()
+        guard min[0] <= max[0], min[1] <= max[1], min[2] <= max[2] else {
+            return nil
+        }
+        return sceneBounds(
+            min: SIMD3<Float>(Float(min[0]), Float(min[1]), Float(min[2])),
+            max: SIMD3<Float>(Float(max[0]), Float(max[1]), Float(max[2]))
+        )
+    }
+
+    func combinedChildBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
+        var combined: USDSceneBounds?
+        for child in prim.GetChildren() {
+            guard let childBounds = sceneBounds(child, timeCode: timeCode) else {
+                continue
+            }
+            combined = combined.map { union($0, childBounds) } ?? childBounds
+        }
+        return combined
+    }
+
+    func sceneBounds(min: SIMD3<Float>, max: SIMD3<Float>) -> USDSceneBounds {
+        let center = (min + max) / 2
+        let extent = max - min
+        return USDSceneBounds(
+            min: min,
+            max: max,
+            center: center,
+            maxExtent: Swift.max(extent.x, Swift.max(extent.y, extent.z))
+        )
+    }
+
+    func union(_ lhs: USDSceneBounds, _ rhs: USDSceneBounds) -> USDSceneBounds {
+        sceneBounds(
+            min: SIMD3<Float>(
+                Swift.min(lhs.min.x, rhs.min.x),
+                Swift.min(lhs.min.y, rhs.min.y),
+                Swift.min(lhs.min.z, rhs.min.z)
+            ),
+            max: SIMD3<Float>(
+                Swift.max(lhs.max.x, rhs.max.x),
+                Swift.max(lhs.max.y, rhs.max.y),
+                Swift.max(lhs.max.z, rhs.max.z)
+            )
         )
     }
 

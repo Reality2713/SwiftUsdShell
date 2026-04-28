@@ -15,6 +15,8 @@ Stage inspection:
 - optionally maps the prim hierarchy into `USDPrimTree`
 - optionally computes generic geometry statistics: mesh count, material count,
   texture shader count, vertex count, and triangulated face count
+- optionally computes world-space scene bounds for the default prim or root
+  children
 - returns OpenUSD diagnostics captured during inspection
 
 Prim inspection:
@@ -30,6 +32,7 @@ Prim inspection:
 - optionally maps common transform vectors, authored xform-op order, supported
   authored xform-op values, animation status, and generic edit capability
 - optionally maps generic material binding information
+- optionally computes world-space bounds for the selected prim subtree
 - returns OpenUSD diagnostics captured during inspection
 
 Generic edits:
@@ -45,8 +48,6 @@ Generic edits:
 These contract fields exist in `SwiftUsdShell`, but the OpenUSD adapter does not
 yet populate them:
 
-- stage bounds
-- prim bounds
 - generic material summary inspection
 
 These are adapter implementation gaps, not shell contract gaps. They should be
