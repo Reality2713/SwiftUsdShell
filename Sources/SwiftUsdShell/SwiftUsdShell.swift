@@ -338,6 +338,34 @@ public struct USDPrimSummary: Hashable, Sendable, Codable {
         self.attributes = attributes
         self.relationships = relationships
     }
+
+    public init(
+        path: USDPath,
+        name: USDToken,
+        typeName: USDToken?,
+        isActive: Bool,
+        visibility: USDToken?,
+        purpose: USDToken?,
+        kind: USDToken?,
+        attributes: [USDAttributeSummary],
+        relationships: [USDRelationshipSummary]
+    ) {
+        self.init(
+            path: path,
+            name: name,
+            typeName: typeName,
+            specifier: nil,
+            isDefined: nil,
+            isActive: isActive,
+            isAbstract: false,
+            isInstanceable: false,
+            visibility: visibility,
+            purpose: purpose,
+            kind: kind,
+            attributes: attributes,
+            relationships: relationships
+        )
+    }
 }
 
 public extension USDPrimSummary {
