@@ -14,7 +14,8 @@ applications that need execution can also depend on `SwiftUsdShellOpenUSD`.
 
 For the full layering model, see
 [Docs/Architecture.md](Docs/Architecture.md). For current adapter coverage,
-see [Docs/AdapterCoverage.md](Docs/AdapterCoverage.md).
+see [Docs/AdapterCoverage.md](Docs/AdapterCoverage.md). For consumer setup,
+see [Docs/ConsumerGuide.md](Docs/ConsumerGuide.md).
 
 ## Boundary Rules
 
