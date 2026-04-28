@@ -851,6 +851,8 @@ private extension OpenUSDStageRuntime {
             path: USDPath(stableOwnedString(describing: materialPrim.GetPath().GetAsString())),
             name: stableOwnedString(describing: materialPrim.GetName().GetString()),
             materialType: materialSummaryType(material),
+            isInstanceable: materialPrim.IsInstanceable(),
+            compositionArcs: compositionArcs(materialPrim),
             properties: materialProperties(material)
         )
     }

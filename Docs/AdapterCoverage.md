@@ -17,7 +17,8 @@ Stage inspection:
   texture shader count, vertex count, and triangulated face count
 - optionally computes world-space scene bounds for the default prim or root
   children
-- optionally maps generic material summaries for material prims in the stage
+- optionally maps generic material summaries, material topology, and material
+  properties for material prims in the stage
 - returns OpenUSD diagnostics captured during inspection
 
 Prim inspection:
@@ -34,8 +35,8 @@ Prim inspection:
   authored xform-op values, animation status, and generic edit capability
 - optionally maps generic material binding information
 - optionally computes world-space bounds for the selected prim subtree
-- optionally maps a generic material summary for a selected material prim or the
-  selected prim's effective bound material
+- optionally maps a generic material summary, topology, and properties for a
+  selected material prim or the selected prim's effective bound material
 - returns OpenUSD diagnostics captured during inspection
 
 Generic edits:

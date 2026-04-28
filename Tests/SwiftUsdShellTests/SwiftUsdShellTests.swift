@@ -190,6 +190,14 @@ func materialInspectionContractsArePureSwiftAndCodable() throws {
         path: "/Root/Looks/Body",
         name: "Body",
         materialType: .usdPreviewSurface,
+        isInstanceable: true,
+        compositionArcs: [
+            USDCompositionArcSummary(
+                kind: .reference,
+                assetPath: nil,
+                primPath: "/Root/Looks/Master"
+            ),
+        ],
         properties: [
             USDMaterialPropertySummary(
                 name: "diffuseColor",
@@ -218,6 +226,8 @@ func materialInspectionContractsArePureSwiftAndCodable() throws {
     let decodedMaterial = try JSONDecoder().decode(USDMaterialSummary.self, from: encodedMaterial)
     #expect(decodedMaterial == material)
     #expect(decodedMaterial.id == "/Root/Looks/Body")
+    #expect(decodedMaterial.isInstanceable)
+    #expect(decodedMaterial.compositionArcs.first?.primPath == "/Root/Looks/Master")
 
     let encodedBinding = try JSONEncoder().encode(binding)
     let decodedBinding = try JSONDecoder().decode(USDMaterialBindingInfo.self, from: encodedBinding)

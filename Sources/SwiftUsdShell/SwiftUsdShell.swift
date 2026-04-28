@@ -547,17 +547,23 @@ public struct USDMaterialSummary: Hashable, Sendable, Codable, Identifiable {
     public var path: USDPath
     public var name: String
     public var materialType: USDMaterialSummaryType
+    public var isInstanceable: Bool
+    public var compositionArcs: [USDCompositionArcSummary]
     public var properties: [USDMaterialPropertySummary]
 
     public init(
         path: USDPath,
         name: String,
         materialType: USDMaterialSummaryType,
+        isInstanceable: Bool = false,
+        compositionArcs: [USDCompositionArcSummary] = [],
         properties: [USDMaterialPropertySummary] = []
     ) {
         self.path = path
         self.name = name
         self.materialType = materialType
+        self.isInstanceable = isInstanceable
+        self.compositionArcs = compositionArcs
         self.properties = properties
     }
 }

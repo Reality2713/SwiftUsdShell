@@ -13,7 +13,7 @@ This package owns pure Swift DTOs, protocols, request types, and result types. I
 Allowed here:
 
 - USD identity values such as paths, tokens, asset paths, and stage URLs
-- inspection DTOs such as stage metadata, prim summaries, attributes, relationships, composition arcs, variant sets, transforms, bounds, diagnostics, material binding summaries, and material property summaries
+- inspection DTOs such as stage metadata, prim summaries, attributes, relationships, composition arcs, variant sets, transforms, bounds, diagnostics, material binding summaries, material topology, and material property summaries
 - generic edit requests/results
 - runtime-facing protocols whose requirements are expressed only in shell DTOs
 - Codable, Hashable, Sendable value types suitable for testing, logging, and process boundaries
