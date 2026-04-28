@@ -15,10 +15,15 @@ typealias UsdTimeCode = pxr.UsdTimeCode
 typealias UsdGeomImageable = pxr.UsdGeomImageable
 typealias UsdGeomMesh = pxr.UsdGeomMesh
 typealias UsdGeomXformCommonAPI = pxr.UsdGeomXformCommonAPI
+typealias UsdShadeConnectableAPI = pxr.UsdShadeConnectableAPI
+typealias UsdShadeInput = pxr.UsdShadeInput
+typealias UsdShadeMaterial = pxr.UsdShadeMaterial
 typealias UsdShadeMaterialBindingAPI = pxr.UsdShadeMaterialBindingAPI
+typealias UsdShadeShader = pxr.UsdShadeShader
 typealias UsdModelAPI = pxr.UsdModelAPI
 typealias TfToken = pxr.TfToken
 typealias SdfPath = pxr.SdfPath
+typealias SdfAssetPath = pxr.SdfAssetPath
 typealias SdfPathVector = pxr.SdfPathVector
 typealias SdfLayerOffset = pxr.SdfLayerOffset
 typealias SdfSpecifier = pxr.SdfSpecifier
@@ -60,6 +65,9 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             primTree: tree,
             statistics: request.options.includeStatistics ? geometryStatistics(stage.GetPseudoRoot()) : nil,
             bounds: request.options.includeBounds ? sceneBounds(stage) : nil,
+            materials: request.options.includeMaterialSummaries
+                ? materialSummaries(stage.GetPseudoRoot())
+                : [],
             diagnostics: collectDiagnostics {
                 _ = stage.GetPseudoRoot()
             }
@@ -88,6 +96,9 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             transform: request.options.includeTransform ? transformInspection(prim, timeCode: request.options.timeCode) : nil,
             materialBinding: request.options.includeMaterialBinding
                 ? materialBindingInfo(for: prim, selectedPath: request.primPath)
+                : nil,
+            materialSummary: request.options.includeMaterialSummary
+                ? materialSummary(for: prim, stage: stage)
                 : nil,
             statistics: request.options.includeStatistics ? geometryStatistics(prim) : nil,
             bounds: request.options.includeBounds
@@ -794,6 +805,268 @@ private extension OpenUSDStageRuntime {
             authoredMaterialPath: authoredMaterialPath,
             bindingSourcePrimPath: bindingSourcePrimPath,
             bindingStrength: bindingStrength
+        )
+    }
+
+    func materialSummaries(_ root: UsdPrim) -> [USDMaterialSummary] {
+        var summaries: [USDMaterialSummary] = []
+
+        func visit(_ prim: UsdPrim) {
+            if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Material",
+               let summary = materialSummary(prim) {
+                summaries.append(summary)
+            }
+
+            for child in prim.GetChildren() {
+                visit(child)
+            }
+        }
+
+        visit(root)
+        return summaries
+    }
+
+    func materialSummary(for prim: UsdPrim, stage: UsdStage) -> USDMaterialSummary? {
+        if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Material" {
+            return materialSummary(prim)
+        }
+
+        guard let materialPath = effectiveMaterialPath(for: prim) else {
+            return nil
+        }
+        let materialPrim = stage.GetPrimAtPath(SdfPath(std.string(materialPath)))
+        guard materialPrim.IsValid() else {
+            return nil
+        }
+        return materialSummary(materialPrim)
+    }
+
+    func materialSummary(_ materialPrim: UsdPrim) -> USDMaterialSummary? {
+        let material = UsdShadeMaterial(materialPrim)
+        guard material.GetPrim().IsValid() else {
+            return nil
+        }
+
+        return USDMaterialSummary(
+            path: USDPath(stableOwnedString(describing: materialPrim.GetPath().GetAsString())),
+            name: stableOwnedString(describing: materialPrim.GetName().GetString()),
+            materialType: materialSummaryType(material),
+            properties: materialProperties(material)
+        )
+    }
+
+    func materialSummaryType(_ material: UsdShadeMaterial) -> USDMaterialSummaryType {
+        let surfaceShader = material.ComputeSurfaceSource(TfToken(), nil, nil)
+        guard surfaceShader.GetPrim().IsValid() else {
+            return .unknown
+        }
+
+        let identifier = shaderIdentifier(surfaceShader.GetPrim()) ?? ""
+        if identifier.contains("UsdPreviewSurface") {
+            return .usdPreviewSurface
+        }
+        if identifier.contains("ND_") {
+            return .materialX
+        }
+        return .unknown
+    }
+
+    func materialProperties(_ material: UsdShadeMaterial) -> [USDMaterialPropertySummary] {
+        let surfaceShader = material.ComputeSurfaceSource(TfToken(), nil, nil)
+        guard surfaceShader.GetPrim().IsValid() else {
+            return []
+        }
+
+        let inputs = surfaceShader.GetInputs(true)
+        var properties: [USDMaterialPropertySummary] = []
+        for index in 0..<inputs.size() {
+            let input = inputs[index]
+            let name = stableOwnedString(describing: input.GetBaseName().GetString())
+
+            if let texture = textureProperty(input, depth: 0) {
+                properties.append(
+                    USDMaterialPropertySummary(
+                        name: name,
+                        propertyType: .texture,
+                        value: texture
+                    )
+                )
+                continue
+            }
+
+            guard let property = materialProperty(input) else {
+                continue
+            }
+            properties.append(property)
+        }
+        return properties
+    }
+
+    func materialProperty(_ input: UsdShadeInput) -> USDMaterialPropertySummary? {
+        let attr = input.GetAttr()
+        guard attr.IsValid(), attr.HasValue() else {
+            return nil
+        }
+
+        let name = stableOwnedString(describing: input.GetBaseName().GetString())
+        let typeName = attr.GetTypeName()
+
+        if typeName == SdfValueTypeName.Bool {
+            var value = false
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return USDMaterialPropertySummary(name: name, propertyType: .bool, value: .bool(value))
+        }
+
+        if typeName == SdfValueTypeName.Int {
+            var value: Int32 = 0
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return USDMaterialPropertySummary(name: name, propertyType: .int, value: .int(Int(value)))
+        }
+
+        if typeName == SdfValueTypeName.Float {
+            var value: Float = 0
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return USDMaterialPropertySummary(name: name, propertyType: .float, value: .float(value))
+        }
+
+        if typeName == SdfValueTypeName.Double {
+            var value: Double = 0
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return USDMaterialPropertySummary(name: name, propertyType: .float, value: .float(Float(value)))
+        }
+
+        if typeName == SdfValueTypeName.Color3f || typeName == SdfValueTypeName.Float3 {
+            var value = GfVec3f(0, 0, 0)
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return USDMaterialPropertySummary(
+                name: name,
+                propertyType: .color,
+                value: .color(red: value[0], green: value[1], blue: value[2])
+            )
+        }
+
+        if typeName == SdfValueTypeName.Token {
+            var value = TfToken()
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return USDMaterialPropertySummary(
+                name: name,
+                propertyType: .token,
+                value: .token(stableOwnedString(describing: value.GetString()))
+            )
+        }
+
+        if typeName == SdfValueTypeName.String {
+            var value = std.string()
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return USDMaterialPropertySummary(
+                name: name,
+                propertyType: .string,
+                value: .string(stableOwnedString(describing: value))
+            )
+        }
+
+        if typeName == SdfValueTypeName.Asset {
+            guard let texture = textureValue(attr) else { return nil }
+            return USDMaterialPropertySummary(name: name, propertyType: .texture, value: texture)
+        }
+
+        return USDMaterialPropertySummary(
+            name: name,
+            propertyType: .unsupported,
+            value: .unsupported(
+                typeName: stableOwnedString(describing: typeName.GetAsToken().GetString()),
+                valueDescription: stableOwnedString(describing: attr.GetTypeName().GetAsToken().GetString())
+            )
+        )
+    }
+
+    func textureProperty(_ input: UsdShadeInput, depth: Int) -> USDMaterialPropertyInfo? {
+        guard depth < 5 else { return nil }
+
+        if let direct = textureValue(input.GetAttr()) {
+            return direct
+        }
+
+        let sources = input.GetConnectedSources(nil)
+        guard sources.size() > 0 else {
+            return nil
+        }
+
+        let sourceInfo = sources[0]
+        return textureProperty(
+            source: sourceInfo.source,
+            sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
+            depth: depth + 1
+        )
+    }
+
+    func textureProperty(
+        source: UsdShadeConnectableAPI,
+        sourceName: String,
+        depth: Int
+    ) -> USDMaterialPropertyInfo? {
+        guard depth < 5 else { return nil }
+
+        let prim = USDOverlay.GetPrim(source)
+        guard prim.IsValid() else {
+            return nil
+        }
+
+        let connectable = UsdShadeConnectableAPI(prim)
+        if !sourceName.isEmpty {
+            let output = connectable.GetOutput(TfToken(std.string(sourceName)))
+            if output.GetAttr().IsValid() {
+                let sources = output.GetConnectedSources(nil)
+                if sources.size() > 0 {
+                    let info = sources[0]
+                    return textureProperty(
+                        source: info.source,
+                        sourceName: stableOwnedString(describing: info.sourceName.GetString()),
+                        depth: depth + 1
+                    )
+                }
+            }
+
+            let input = connectable.GetInput(TfToken(std.string(sourceName)))
+            if input.GetAttr().IsValid(),
+               let texture = textureProperty(input, depth: depth + 1) {
+                return texture
+            }
+        }
+
+        let shader = UsdShadeShader(prim)
+        guard shader.GetPrim().IsValid() else {
+            return nil
+        }
+
+        let fileInput = shader.GetInput(TfToken(std.string("file")))
+        if fileInput.GetAttr().IsValid() {
+            return textureProperty(fileInput, depth: depth + 1)
+        }
+
+        let fileAttr = prim.GetAttribute(TfToken(std.string("inputs:file")))
+        return textureValue(fileAttr)
+    }
+
+    func textureValue(_ attr: UsdAttribute) -> USDMaterialPropertyInfo? {
+        guard attr.IsValid() else {
+            return nil
+        }
+
+        var value = SdfAssetPath()
+        guard attr.Get(&value, UsdTimeCode.Default()) else {
+            return nil
+        }
+
+        let authored = stableOwnedString(describing: value.GetAssetPath())
+        let resolved = stableOwnedString(describing: value.GetResolvedPath())
+        if authored.isEmpty, resolved.isEmpty {
+            return nil
+        }
+
+        return .texture(
+            url: authored.isEmpty ? resolved : authored,
+            resolvedPath: resolved.isEmpty ? nil : resolved
         )
     }
 

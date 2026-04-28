@@ -980,17 +980,20 @@ public struct USDStageInspectionOptions: Hashable, Sendable, Codable {
     public var includePrimTree: Bool
     public var includeStatistics: Bool
     public var includeBounds: Bool
+    public var includeMaterialSummaries: Bool
 
     public init(
         loadPolicy: USDLoadPolicy = .loadAll,
         includePrimTree: Bool = true,
         includeStatistics: Bool = false,
-        includeBounds: Bool = false
+        includeBounds: Bool = false,
+        includeMaterialSummaries: Bool = false
     ) {
         self.loadPolicy = loadPolicy
         self.includePrimTree = includePrimTree
         self.includeStatistics = includeStatistics
         self.includeBounds = includeBounds
+        self.includeMaterialSummaries = includeMaterialSummaries
     }
 }
 
@@ -1013,6 +1016,7 @@ public struct USDStageInspection: Hashable, Sendable, Codable {
     public var primTree: USDPrimTree?
     public var statistics: USDGeometryStatistics?
     public var bounds: USDSceneBounds?
+    public var materials: [USDMaterialSummary]
     public var diagnostics: [USDDiagnostic]
 
     public init(
@@ -1021,6 +1025,7 @@ public struct USDStageInspection: Hashable, Sendable, Codable {
         primTree: USDPrimTree? = nil,
         statistics: USDGeometryStatistics? = nil,
         bounds: USDSceneBounds? = nil,
+        materials: [USDMaterialSummary] = [],
         diagnostics: [USDDiagnostic] = []
     ) {
         self.stageURL = stageURL
@@ -1028,6 +1033,7 @@ public struct USDStageInspection: Hashable, Sendable, Codable {
         self.primTree = primTree
         self.statistics = statistics
         self.bounds = bounds
+        self.materials = materials
         self.diagnostics = diagnostics
     }
 }
@@ -1040,6 +1046,7 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
     public var includeVariantSets: Bool
     public var includeTransform: Bool
     public var includeMaterialBinding: Bool
+    public var includeMaterialSummary: Bool
     public var includeStatistics: Bool
     public var includeBounds: Bool
 
@@ -1051,6 +1058,7 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
         includeVariantSets: Bool = true,
         includeTransform: Bool = true,
         includeMaterialBinding: Bool = false,
+        includeMaterialSummary: Bool = false,
         includeStatistics: Bool = false,
         includeBounds: Bool = false
     ) {
@@ -1061,6 +1069,7 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
         self.includeVariantSets = includeVariantSets
         self.includeTransform = includeTransform
         self.includeMaterialBinding = includeMaterialBinding
+        self.includeMaterialSummary = includeMaterialSummary
         self.includeStatistics = includeStatistics
         self.includeBounds = includeBounds
     }
@@ -1145,6 +1154,7 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
     public var variantSets: [USDVariantSetSummary]
     public var transform: USDTransformInspection?
     public var materialBinding: USDMaterialBindingInfo?
+    public var materialSummary: USDMaterialSummary?
     public var statistics: USDGeometryStatistics?
     public var bounds: USDSceneBounds?
     public var diagnostics: [USDDiagnostic]
@@ -1155,6 +1165,7 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
         variantSets: [USDVariantSetSummary] = [],
         transform: USDTransformInspection? = nil,
         materialBinding: USDMaterialBindingInfo? = nil,
+        materialSummary: USDMaterialSummary? = nil,
         statistics: USDGeometryStatistics? = nil,
         bounds: USDSceneBounds? = nil,
         diagnostics: [USDDiagnostic] = []
@@ -1164,6 +1175,7 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
         self.variantSets = variantSets
         self.transform = transform
         self.materialBinding = materialBinding
+        self.materialSummary = materialSummary
         self.statistics = statistics
         self.bounds = bounds
         self.diagnostics = diagnostics

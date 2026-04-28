@@ -343,8 +343,21 @@ func stageRuntimeContractsArePureSwiftAndCodable() throws {
             loadPolicy: .loadNone,
             includePrimTree: true,
             includeStatistics: true,
-            includeBounds: true
+            includeBounds: true,
+            includeMaterialSummaries: true
         )
+    )
+    let material = USDMaterialSummary(
+        path: "/Root/Looks/Body",
+        name: "Body",
+        materialType: .usdPreviewSurface,
+        properties: [
+            USDMaterialPropertySummary(
+                name: "diffuseColor",
+                propertyType: .color,
+                value: .color(red: 0.5, green: 0.5, blue: 0.5)
+            ),
+        ]
     )
     let inspection = USDStageInspection(
         stageURL: request.stageURL,
@@ -356,6 +369,7 @@ func stageRuntimeContractsArePureSwiftAndCodable() throws {
         primTree: USDPrimTree(path: "/Root", name: "Root", typeName: "Xform"),
         statistics: USDGeometryStatistics(totalTriangles: 12, totalVertices: 8),
         bounds: USDSceneBounds(maxExtent: 2),
+        materials: [material],
         diagnostics: [
             USDDiagnostic(
                 severity: .info,
@@ -387,9 +401,22 @@ func primRuntimeContractsArePureSwiftAndCodable() throws {
             includeVariantSets: true,
             includeTransform: true,
             includeMaterialBinding: true,
+            includeMaterialSummary: true,
             includeStatistics: true,
             includeBounds: true
         )
+    )
+    let material = USDMaterialSummary(
+        path: "/Root/Looks/Mat",
+        name: "Mat",
+        materialType: .usdPreviewSurface,
+        properties: [
+            USDMaterialPropertySummary(
+                name: "normal",
+                propertyType: .texture,
+                value: .texture(url: "normal.png", resolvedPath: "/tmp/normal.png")
+            ),
+        ]
     )
     let inspection = USDPrimInspection(
         prim: USDPrimSummary(
@@ -440,6 +467,7 @@ func primRuntimeContractsArePureSwiftAndCodable() throws {
             selectedPrimPath: "/Root/Cube",
             effectiveMaterialPath: "/Root/Looks/Mat"
         ),
+        materialSummary: material,
         statistics: USDGeometryStatistics(totalTriangles: 12, totalVertices: 8, meshCount: 1),
         bounds: USDSceneBounds(maxExtent: 4)
     )
