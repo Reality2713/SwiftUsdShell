@@ -1040,6 +1040,7 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
     public var includeVariantSets: Bool
     public var includeTransform: Bool
     public var includeMaterialBinding: Bool
+    public var includeStatistics: Bool
     public var includeBounds: Bool
 
     public init(
@@ -1050,6 +1051,7 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
         includeVariantSets: Bool = true,
         includeTransform: Bool = true,
         includeMaterialBinding: Bool = false,
+        includeStatistics: Bool = false,
         includeBounds: Bool = false
     ) {
         self.timeCode = timeCode
@@ -1059,6 +1061,7 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
         self.includeVariantSets = includeVariantSets
         self.includeTransform = includeTransform
         self.includeMaterialBinding = includeMaterialBinding
+        self.includeStatistics = includeStatistics
         self.includeBounds = includeBounds
     }
 }
@@ -1142,6 +1145,7 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
     public var variantSets: [USDVariantSetSummary]
     public var transform: USDTransformInspection?
     public var materialBinding: USDMaterialBindingInfo?
+    public var statistics: USDGeometryStatistics?
     public var bounds: USDSceneBounds?
     public var diagnostics: [USDDiagnostic]
 
@@ -1151,6 +1155,7 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
         variantSets: [USDVariantSetSummary] = [],
         transform: USDTransformInspection? = nil,
         materialBinding: USDMaterialBindingInfo? = nil,
+        statistics: USDGeometryStatistics? = nil,
         bounds: USDSceneBounds? = nil,
         diagnostics: [USDDiagnostic] = []
     ) {
@@ -1159,6 +1164,7 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
         self.variantSets = variantSets
         self.transform = transform
         self.materialBinding = materialBinding
+        self.statistics = statistics
         self.bounds = bounds
         self.diagnostics = diagnostics
     }

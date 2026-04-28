@@ -23,10 +23,12 @@ Prim inspection:
 - maps prim identity, type name, specifier, active/defined/abstract/instanceable
   state
 - optionally maps attributes and relationships
+- optionally computes generic geometry statistics for the selected prim subtree
 - optionally maps references and payloads into composition arc summaries
 - optionally maps variant set names, choices, authored selection state, and
   selected variant
-- optionally maps common transform vectors
+- optionally maps common transform vectors, authored xform-op order, supported
+  authored xform-op values, animation status, and generic edit capability
 - optionally maps generic material binding information
 - returns OpenUSD diagnostics captured during inspection
 
@@ -45,7 +47,6 @@ yet populate them:
 
 - stage bounds
 - prim bounds
-- full authored xform-op stack details in transform inspection
 - generic material summary inspection
 
 These are adapter implementation gaps, not shell contract gaps. They should be

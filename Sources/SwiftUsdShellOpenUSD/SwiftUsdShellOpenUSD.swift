@@ -10,6 +10,7 @@ typealias UsdStage = pxr.UsdStage
 typealias UsdStageRefPtr = pxr.UsdStageRefPtr
 typealias UsdPrim = pxr.UsdPrim
 typealias UsdRelationship = pxr.UsdRelationship
+typealias UsdAttribute = pxr.UsdAttribute
 typealias UsdTimeCode = pxr.UsdTimeCode
 typealias UsdGeomImageable = pxr.UsdGeomImageable
 typealias UsdGeomMesh = pxr.UsdGeomMesh
@@ -21,10 +22,23 @@ typealias SdfPath = pxr.SdfPath
 typealias SdfPathVector = pxr.SdfPathVector
 typealias SdfLayerOffset = pxr.SdfLayerOffset
 typealias SdfSpecifier = pxr.SdfSpecifier
+typealias SdfValueTypeName = pxr.SdfValueTypeName
 typealias GfVec3d = pxr.GfVec3d
 typealias GfVec3f = pxr.GfVec3f
 typealias VtIntArray = pxr.VtIntArray
+typealias VtTokenArray = pxr.VtTokenArray
 typealias VtVec3fArray = pxr.VtVec3fArray
+
+private let nonXformableTypeNames: Set<String> = [
+    "",
+    "animation",
+    "geomsubset",
+    "material",
+    "nodegraph",
+    "scope",
+    "shader",
+    "skelanimation",
+]
 
 /// Mechanical runtime adapter that answers SwiftUsdShell requests with OpenUSD.
 ///
@@ -74,6 +88,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             materialBinding: request.options.includeMaterialBinding
                 ? materialBindingInfo(for: prim, selectedPath: request.primPath)
                 : nil,
+            statistics: request.options.includeStatistics ? geometryStatistics(prim) : nil,
             diagnostics: diagnostics
         )
     }
@@ -367,18 +382,266 @@ private extension OpenUSDStageRuntime {
             &rotationOrder,
             openUSDTimeCode(timeCode)
         ) else {
-            return nil
+            return authoredTransformInspection(prim, localTransform: .init())
+        }
+
+        let localTransform = USDTransformData(
+            position: SIMD3<Double>(translation[0], translation[1], translation[2]),
+            rotationDegrees: SIMD3<Double>(Double(rotation[0]), Double(rotation[1]), Double(rotation[2])),
+            scale: SIMD3<Double>(Double(scale[0]), Double(scale[1]), Double(scale[2]))
+        )
+        let authoredInspection = authoredTransformInspection(prim, localTransform: localTransform)
+
+        return USDTransformInspection(
+            localTransform: localTransform,
+            authoredOps: authoredInspection.authoredOps,
+            editCapability: authoredInspection.editCapability,
+            restrictionReason: authoredInspection.restrictionReason,
+            isAnimated: authoredInspection.isAnimated
+        )
+    }
+
+    func authoredTransformInspection(
+        _ prim: UsdPrim,
+        localTransform: USDTransformData
+    ) -> USDTransformInspection {
+        let typeName = stableOwnedString(describing: prim.GetTypeName().GetString())
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let authoredOps = collectAuthoredOps(for: prim)
+        let isAnimated = authoredOps.contains(where: \.isTimeSampled)
+
+        if nonXformableTypeNames.contains(typeName) {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .notXformable,
+                restrictionReason: .nonXformablePrim,
+                isAnimated: isAnimated
+            )
+        }
+
+        if isAnimated {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyAnimated,
+                restrictionReason: .animatedTransformOp,
+                isAnimated: true
+            )
+        }
+
+        if authoredOps.contains(where: { $0.kind == .orient }) {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyOrient,
+                restrictionReason: .orientTransformOp
+            )
+        }
+
+        if authoredOps.contains(where: { $0.kind == .transform }) {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyMatrix,
+                restrictionReason: .matrixTransformOp
+            )
+        }
+
+        if authoredOps.contains(where: { if case .custom = $0.kind { true } else { false } }) {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyUnsupportedCustomStack,
+                restrictionReason: .unsupportedOp
+            )
+        }
+
+        let order = authoredOps.map(\.token)
+        let hasRotateXYZ = authoredOps.contains(where: { $0.kind == .rotateXYZ })
+        let scalarRotationKinds = Set(
+            authoredOps.compactMap { op -> USDAuthoredXformOpKind? in
+                switch op.kind {
+                case .rotateX, .rotateY, .rotateZ:
+                    op.kind
+                default:
+                    nil
+                }
+            }
+        )
+
+        if hasRotateXYZ && !scalarRotationKinds.isEmpty {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyUnsupportedCustomStack,
+                restrictionReason: .customTransformStack
+            )
+        }
+
+        if !scalarRotationKinds.isEmpty && scalarRotationKinds != Set([.rotateX, .rotateY, .rotateZ]) {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyUnsupportedCustomStack,
+                restrictionReason: .partialEulerStack
+            )
+        }
+
+        let pivotCount = order.filter(isPivotStartToken).count
+        let inversePivotCount = order.filter(isInversePivotToken).count
+        if pivotCount != inversePivotCount || pivotCount > 1 {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyUnsupportedCustomStack,
+                restrictionReason: .unsupportedPivotStack
+            )
+        }
+
+        if !order.allSatisfy(isSupportedXformToken) {
+            return USDTransformInspection(
+                localTransform: localTransform,
+                authoredOps: authoredOps,
+                editCapability: .readonlyUnsupportedCustomStack,
+                restrictionReason: .customTransformStack
+            )
+        }
+
+        let capability: USDTransformEditCapability
+        if scalarRotationKinds == Set([.rotateX, .rotateY, .rotateZ]) {
+            capability = .editableSeparateEuler
+        } else if pivotCount == 1 {
+            capability = .editablePivoted
+        } else {
+            capability = .editableCommon
         }
 
         return USDTransformInspection(
-            localTransform: USDTransformData(
-                position: SIMD3<Double>(translation[0], translation[1], translation[2]),
-                rotationDegrees: SIMD3<Double>(Double(rotation[0]), Double(rotation[1]), Double(rotation[2])),
-                scale: SIMD3<Double>(Double(scale[0]), Double(scale[1]), Double(scale[2]))
-            ),
-            editCapability: .editableCommon,
-            restrictionReason: nil
+            localTransform: localTransform,
+            authoredOps: authoredOps,
+            editCapability: capability
         )
+    }
+
+    func collectAuthoredOps(for prim: UsdPrim) -> [USDAuthoredXformOp] {
+        let order = xformOpOrder(prim)
+        var seen = Set<String>()
+        var ops: [USDAuthoredXformOp] = []
+
+        for rawToken in order {
+            let isInverse = rawToken.hasPrefix("!invert!")
+            let token = isInverse ? String(rawToken.dropFirst("!invert!".count)) : rawToken
+            let attr = prim.GetAttribute(TfToken(std.string(token)))
+            guard let authoredOp = authoredOp(for: attr, token: rawToken, isInverse: isInverse) else {
+                continue
+            }
+            seen.insert(rawToken)
+            ops.append(authoredOp)
+        }
+
+        for attr in prim.GetAttributes() {
+            let token = stableOwnedString(describing: attr.GetName().GetString())
+            guard token.hasPrefix("xformOp:"), !seen.contains(token) else {
+                continue
+            }
+            guard let authoredOp = authoredOp(for: attr, token: token, isInverse: false) else {
+                continue
+            }
+            seen.insert(token)
+            ops.append(authoredOp)
+        }
+
+        return ops
+    }
+
+    func xformOpOrder(_ prim: UsdPrim) -> [String] {
+        let attr = prim.GetAttribute(TfToken(std.string("xformOpOrder")))
+        guard attr.IsValid() else { return [] }
+
+        var tokens = VtTokenArray()
+        guard attr.Get(&tokens, UsdTimeCode.Default()) else { return [] }
+
+        var order: [String] = []
+        for index in 0..<tokens.size() {
+            order.append(stableOwnedString(describing: tokens[index].GetString()))
+        }
+        return order
+    }
+
+    func authoredOp(
+        for attr: UsdAttribute,
+        token: String,
+        isInverse: Bool
+    ) -> USDAuthoredXformOp? {
+        guard attr.IsValid() else { return nil }
+
+        let normalizedToken = isInverse ? String(token.dropFirst("!invert!".count)) : token
+        let kind = xformOpKind(for: normalizedToken)
+        let precision = xformOpPrecision(for: attr)
+
+        return USDAuthoredXformOp(
+            token: token,
+            kind: kind,
+            precision: precision,
+            isInverseOp: isInverse,
+            isAuthored: attr.IsAuthored(),
+            isTimeSampled: attr.GetNumTimeSamples() > 1,
+            value: authoredXformValue(for: attr, kind: kind)
+        )
+    }
+
+    func authoredXformValue(
+        for attr: UsdAttribute,
+        kind: USDAuthoredXformOpKind
+    ) -> USDAuthoredXformOpValue? {
+        switch kind {
+        case .translate, .rotateXYZ, .scale, .pivot:
+            return xformVector3Value(attr).map(USDAuthoredXformOpValue.vector3)
+        case .rotateX, .rotateY, .rotateZ:
+            return xformScalarValue(attr).map(USDAuthoredXformOpValue.scalar)
+        case .orient, .transform, .custom:
+            return .text(stableOwnedString(describing: attr.GetTypeName().GetAsToken().GetString()))
+        }
+    }
+
+    func xformVector3Value(_ attr: UsdAttribute) -> SIMD3<Double>? {
+        let typeName = attr.GetTypeName()
+        if typeName == SdfValueTypeName.Double3
+            || typeName == SdfValueTypeName.Point3d
+            || typeName == SdfValueTypeName.Vector3d {
+            var value = GfVec3d(0, 0, 0)
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return SIMD3<Double>(value[0], value[1], value[2])
+        }
+
+        if typeName == SdfValueTypeName.Float3
+            || typeName == SdfValueTypeName.Point3f
+            || typeName == SdfValueTypeName.Vector3f {
+            var value = GfVec3f(0, 0, 0)
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return SIMD3<Double>(Double(value[0]), Double(value[1]), Double(value[2]))
+        }
+
+        return nil
+    }
+
+    func xformScalarValue(_ attr: UsdAttribute) -> Double? {
+        let typeName = attr.GetTypeName()
+        if typeName == SdfValueTypeName.Double {
+            var value = 0.0
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return value
+        }
+
+        if typeName == SdfValueTypeName.Float {
+            var value: Float = 0
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            return Double(value)
+        }
+
+        return nil
     }
 
     func setCommonTransform(
@@ -586,6 +849,85 @@ private func modelKind(_ prim: UsdPrim) -> USDToken? {
     var kind = TfToken()
     guard UsdModelAPI(prim).GetKind(&kind) else { return nil }
     return tokenOrNil(kind)
+}
+
+private func xformOpKind(for token: String) -> USDAuthoredXformOpKind {
+    switch token {
+    case "xformOp:translate":
+        .translate
+    case "xformOp:rotateXYZ":
+        .rotateXYZ
+    case "xformOp:rotateX":
+        .rotateX
+    case "xformOp:rotateY":
+        .rotateY
+    case "xformOp:rotateZ":
+        .rotateZ
+    case "xformOp:scale":
+        .scale
+    case "xformOp:translate:pivot":
+        .pivot
+    case "xformOp:orient":
+        .orient
+    case "xformOp:transform":
+        .transform
+    default:
+        .custom(token: token)
+    }
+}
+
+private func xformOpPrecision(for attr: UsdAttribute) -> USDAuthoredXformOpPrecision {
+    let typeName = attr.GetTypeName()
+    if typeName == SdfValueTypeName.Double
+        || typeName == SdfValueTypeName.Double3
+        || typeName == SdfValueTypeName.Point3d
+        || typeName == SdfValueTypeName.Vector3d
+        || typeName == SdfValueTypeName.Quatd
+        || typeName == SdfValueTypeName.Matrix4d {
+        return .double
+    }
+
+    if typeName == SdfValueTypeName.Half
+        || typeName == SdfValueTypeName.Half3
+        || typeName == SdfValueTypeName.Point3h
+        || typeName == SdfValueTypeName.Vector3h
+        || typeName == SdfValueTypeName.Quath {
+        return .half
+    }
+
+    if typeName == SdfValueTypeName.Float
+        || typeName == SdfValueTypeName.Float3
+        || typeName == SdfValueTypeName.Point3f
+        || typeName == SdfValueTypeName.Vector3f
+        || typeName == SdfValueTypeName.Quatf {
+        return .float
+    }
+
+    return .unknown
+}
+
+private func isSupportedXformToken(_ token: String) -> Bool {
+    switch token {
+    case "xformOp:translate",
+         "xformOp:rotateXYZ",
+         "xformOp:rotateX",
+         "xformOp:rotateY",
+         "xformOp:rotateZ",
+         "xformOp:scale",
+         "xformOp:translate:pivot",
+         "!invert!xformOp:translate:pivot":
+        true
+    default:
+        false
+    }
+}
+
+private func isPivotStartToken(_ token: String) -> Bool {
+    token == "xformOp:translate:pivot"
+}
+
+private func isInversePivotToken(_ token: String) -> Bool {
+    token == "!invert!xformOp:translate:pivot"
 }
 
 private func compositionArc(

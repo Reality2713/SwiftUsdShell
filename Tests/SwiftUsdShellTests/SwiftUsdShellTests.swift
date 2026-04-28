@@ -387,6 +387,7 @@ func primRuntimeContractsArePureSwiftAndCodable() throws {
             includeVariantSets: true,
             includeTransform: true,
             includeMaterialBinding: true,
+            includeStatistics: true,
             includeBounds: true
         )
     )
@@ -439,6 +440,7 @@ func primRuntimeContractsArePureSwiftAndCodable() throws {
             selectedPrimPath: "/Root/Cube",
             effectiveMaterialPath: "/Root/Looks/Mat"
         ),
+        statistics: USDGeometryStatistics(totalTriangles: 12, totalVertices: 8, meshCount: 1),
         bounds: USDSceneBounds(maxExtent: 4)
     )
 
