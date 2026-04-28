@@ -757,21 +757,13 @@ public struct USDModelInfo: Hashable, Sendable, Codable {
 public enum USDMaterialSurfaceOutputFamily: String, Hashable, Sendable, Codable, CaseIterable {
     case usdPreviewSurface
     case materialXPreviewSurface
-    case realityKitGraph
     case openPBR
 }
 
 public enum USDMaterialAuthoringTarget: String, Hashable, Sendable, Codable {
     case usdPreviewSurface
     case materialXPreviewSurface
-    case realityKitGraph
     case openPBR
-}
-
-public enum USDMaterialEditPolicy: Hashable, Sendable, Codable {
-    case preserveAuthoredMode
-    case canonicalizeToPreviewSurface
-    case convert(to: USDMaterialAuthoringTarget)
 }
 
 public enum USDMaterialEditableChannelID: String, Hashable, Sendable, Codable, CaseIterable {
@@ -815,27 +807,23 @@ public struct USDMaterialEditRequest: Hashable, Sendable, Codable {
     public var materialPath: USDPath
     public var channel: USDMaterialEditableChannelID
     public var operation: USDMaterialEditOperation
-    public var policy: USDMaterialEditPolicy
 
     public init(
         stageURL: USDStageURL,
         materialPath: USDPath,
         channel: USDMaterialEditableChannelID,
-        operation: USDMaterialEditOperation,
-        policy: USDMaterialEditPolicy = .preserveAuthoredMode
+        operation: USDMaterialEditOperation
     ) {
         self.stageURL = stageURL
         self.materialPath = materialPath
         self.channel = channel
         self.operation = operation
-        self.policy = policy
     }
 }
 
 public enum USDMaterialAuthoredMode: String, Hashable, Sendable, Codable {
     case usdPreviewSurface
     case materialXPreviewSurface
-    case realityKitGraph
     case openPBR
     case mixed
     case unknown
@@ -860,103 +848,6 @@ public struct USDMaterialEditResult: Hashable, Sendable, Codable {
         self.changedAssetPaths = changedAssetPaths
         self.warnings = warnings
         self.convertedTo = convertedTo
-    }
-}
-
-public enum USDMaterialEditBranchApplicability: Hashable, Sendable, Codable {
-    case direct
-    case mirrored
-    case requiresConversion
-    case unsupported
-}
-
-public struct USDMaterialEditBranchTarget: Hashable, Sendable, Codable {
-    public var output: USDMaterialSurfaceOutputFamily
-    public var applicability: USDMaterialEditBranchApplicability
-
-    public init(
-        output: USDMaterialSurfaceOutputFamily,
-        applicability: USDMaterialEditBranchApplicability
-    ) {
-        self.output = output
-        self.applicability = applicability
-    }
-}
-
-public struct USDMaterialEditBranchPlan: Hashable, Sendable, Codable {
-    public var branchTargets: [USDMaterialEditBranchTarget]
-    public var targetOutputs: [USDMaterialSurfaceOutputFamily]
-    public var requiresConversion: Bool
-    public var preservesAuthoredMode: Bool
-
-    public init(
-        branchTargets: [USDMaterialEditBranchTarget],
-        targetOutputs: [USDMaterialSurfaceOutputFamily],
-        requiresConversion: Bool,
-        preservesAuthoredMode: Bool
-    ) {
-        self.branchTargets = branchTargets
-        self.targetOutputs = targetOutputs
-        self.requiresConversion = requiresConversion
-        self.preservesAuthoredMode = preservesAuthoredMode
-    }
-}
-
-public enum USDMaterialEditReadiness: Hashable, Sendable, Codable {
-    case fullySupported
-    case partiallySupported
-    case requiresConversion
-    case unsupported
-}
-
-public struct USDPreparedMaterialEdit: Hashable, Sendable, Codable {
-    public var request: USDMaterialEditRequest
-    public var branchPlan: USDMaterialEditBranchPlan
-    public var executionWarnings: [String]
-
-    public init(
-        request: USDMaterialEditRequest,
-        branchPlan: USDMaterialEditBranchPlan,
-        executionWarnings: [String] = []
-    ) {
-        self.request = request
-        self.branchPlan = branchPlan
-        self.executionWarnings = executionWarnings
-    }
-}
-
-public extension USDPreparedMaterialEdit {
-    var supportedBranchTargets: [USDMaterialEditBranchTarget] {
-        branchPlan.branchTargets.filter { $0.applicability != .unsupported }
-    }
-
-    var unsupportedBranchTargets: [USDMaterialEditBranchTarget] {
-        branchPlan.branchTargets.filter { $0.applicability == .unsupported }
-    }
-
-    var supportedOutputs: [USDMaterialSurfaceOutputFamily] {
-        supportedBranchTargets.map(\.output)
-    }
-
-    var unsupportedOutputs: [USDMaterialSurfaceOutputFamily] {
-        unsupportedBranchTargets.map(\.output)
-    }
-
-    var readiness: USDMaterialEditReadiness {
-        if supportedBranchTargets.isEmpty {
-            return .unsupported
-        }
-        if branchPlan.requiresConversion {
-            return .requiresConversion
-        }
-        if unsupportedBranchTargets.isEmpty == false {
-            return .partiallySupported
-        }
-        return .fullySupported
-    }
-
-    var requiresUserAttention: Bool {
-        readiness != .fullySupported
     }
 }
 public enum SwiftUsdShellError: Error, Equatable, Sendable {
