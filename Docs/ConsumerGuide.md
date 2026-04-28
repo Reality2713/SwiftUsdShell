@@ -22,11 +22,31 @@ struct SelectionInspector {
                     includeCompositionArcs: true,
                     includeVariantSets: true,
                     includeTransform: true,
-                    includeMaterialBinding: true
+                    includeMaterialBinding: true,
+                    includeMaterialSummary: true
                 )
             )
         )
     }
+}
+```
+
+Use stage-level material summaries when a feature needs a pure-Swift overview of
+materials without importing OpenUSD:
+
+```swift
+let inspection = try await runtime.inspectStage(
+    USDStageInspectionRequest(
+        stageURL: USDStageURL(stageURL),
+        options: USDStageInspectionOptions(
+            includePrimTree: false,
+            includeMaterialSummaries: true
+        )
+    )
+)
+
+for material in inspection.materials {
+    print(material.path.rawValue, material.materialType.rawValue)
 }
 ```
 

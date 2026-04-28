@@ -13,7 +13,7 @@ This package owns pure Swift DTOs, protocols, request types, and result types. I
 Allowed here:
 
 - USD identity values such as paths, tokens, asset paths, and stage URLs
-- inspection DTOs such as stage metadata, prim summaries, attributes, relationships, composition arcs, variant sets, transforms, bounds, diagnostics, and material binding summaries
+- inspection DTOs such as stage metadata, prim summaries, attributes, relationships, composition arcs, variant sets, transforms, bounds, diagnostics, material binding summaries, and material property summaries
 - generic edit requests/results
 - runtime-facing protocols whose requirements are expressed only in shell DTOs
 - Codable, Hashable, Sendable value types suitable for testing, logging, and process boundaries
@@ -39,7 +39,7 @@ Allowed here:
 - importing SwiftUsd/OpenUSD
 - opening stages and reading generic stage metadata
 - traversing prims and mapping them into shell DTOs
-- reading attributes, relationships, transforms, references, variants, bounds, statistics, and generic material bindings
+- reading attributes, relationships, transforms, references, variants, bounds, statistics, generic material bindings, and generic material properties
 - executing generic USD edits and returning shell edit results
 - translating runtime diagnostics into typed shell errors
 
@@ -60,7 +60,7 @@ The adapter should grow in the same groups that broad USD tooling tends to use:
 - composition arcs for references and payloads
 - variant sets and authored selections
 - transforms and bounds
-- generic material binding inspection
+- generic material binding and material property inspection
 - structured runtime diagnostics
 
 Import/export policy, texture packaging, renderer publication, validation
@@ -127,9 +127,7 @@ Before adding an API, answer:
 
 ## Action Plan
 
-1. Define the first small runtime-facing protocol in `SwiftUsdShell`.
-   Start with stage inspection and prim inspection because they unblock consumers without introducing product policy.
-2. Add a consumer smoke test that imports only `SwiftUsdShell` and proves no runtime product is needed.
-3. Add a separate OpenUSD-backed adapter product only after the protocol shape is stable.
-4. Keep application/editor behavior in consuming packages.
-5. Use an external sample application as the first proof: feature/UI targets should import shell contracts, while the runtime adapter is the only target that imports SwiftUsd/OpenUSD.
+1. Keep broadening `SwiftUsdShellOpenUSD` only with mechanical USD facts that map directly into existing shell contracts.
+2. Use external sample applications as proof: feature/UI targets should import shell contracts, while the runtime adapter is the only target that imports SwiftUsd/OpenUSD.
+3. Move warning, repair, validation, packaging, and renderer-parity decisions into consuming application/domain packages.
+4. When consumers need new data, first ask whether it is a neutral USD fact or a product workflow rule. Add only the neutral fact to SwiftUsdShell.
