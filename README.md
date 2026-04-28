@@ -73,9 +73,10 @@ validation, repair, conversion, and workflow decisions.
 
 Before tagging a public release:
 
-1. Run `swift test` in this package.
-2. Confirm no runtime imports, bridge imports, C++ interop settings, or
+1. Run `scripts/audit-public-surface.sh`.
+2. Run `swift test` in this package.
+3. Confirm no runtime imports, bridge imports, C++ interop settings, or
    product-specific names are present in source or tests.
-3. Confirm new public DTOs are Codable, Hashable, and Sendable unless there is a
+4. Confirm new public DTOs are Codable, Hashable, and Sendable unless there is a
    documented reason they cannot be.
-4. Confirm product and workflow logic stayed in a higher-level package.
+5. Confirm product and workflow logic stayed in a higher-level package.
