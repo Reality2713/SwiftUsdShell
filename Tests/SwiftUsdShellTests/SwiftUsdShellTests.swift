@@ -35,7 +35,10 @@ func valueSummariesArePureSwiftAndCodable() throws {
         path: "/Root/Cube",
         name: "Cube",
         typeName: "Mesh",
+        specifier: .def,
+        isDefined: true,
         isActive: true,
+        isInstanceable: true,
         visibility: "inherited",
         purpose: "default",
         kind: "component",
@@ -72,6 +75,9 @@ func valueSummariesArePureSwiftAndCodable() throws {
         USDValue.vector3(USDVector3(x: 1, y: 0.5, z: 0.25)),
     ]))
     #expect(decoded.typeNameText == "Mesh")
+    #expect(decoded.specifier == .def)
+    #expect(decoded.isDefined == true)
+    #expect(decoded.isInstanceable)
     #expect(decoded.visibilityText == "inherited")
     #expect(decoded.purposeText == "default")
     #expect(decoded.kindText == "component")
@@ -94,6 +100,8 @@ func primTreesArePureSwiftAndCodable() throws {
 
     #expect(decoded == tree)
     #expect(decoded.id == "/")
+    #expect(decoded.children.first?.specifier == nil)
+    #expect(decoded.children.first?.isActive == true)
 }
 
 @Test
@@ -223,6 +231,10 @@ func transformAndStatisticsContractsArePureSwiftAndCodable() throws {
         localTransform: USDTransformData(
             position: SIMD3<Double>(1, 2, 3),
             rotationDegrees: SIMD3<Double>(0, 45, 90),
+            orientation: USDQuaternion(
+                real: 0.9238795325,
+                imaginary: USDVector3(x: 0, y: 0.3826834324, z: 0)
+            ),
             scale: SIMD3<Double>(repeating: 2)
         ),
         authoredOps: [
@@ -233,10 +245,15 @@ func transformAndStatisticsContractsArePureSwiftAndCodable() throws {
                 value: .vector3(SIMD3<Double>(1, 2, 3))
             ),
             USDAuthoredXformOp(
-                token: "xformOp:transform",
-                kind: .transform,
-                precision: .double,
-                value: .text("matrix4d")
+                token: "xformOp:orient",
+                kind: .orient,
+                precision: .float,
+                value: .quaternion(
+                    USDQuaternion(
+                        real: 0.9238795325,
+                        imaginary: USDVector3(x: 0, y: 0.3826834324, z: 0)
+                    )
+                )
             ),
         ],
         editCapability: .readonlyMatrix,
@@ -319,11 +336,223 @@ func materialShellEnumsDoNotExposeProductOutputs() {
 }
 
 @Test
+func stageRuntimeContractsArePureSwiftAndCodable() throws {
+    let request = USDStageInspectionRequest(
+        stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
+        options: USDStageInspectionOptions(
+            loadPolicy: .loadNone,
+            includePrimTree: true,
+            includeStatistics: true,
+            includeBounds: true
+        )
+    )
+    let inspection = USDStageInspection(
+        stageURL: request.stageURL,
+        metadata: USDStageMetadata(
+            upAxis: "Y",
+            metersPerUnit: 1,
+            defaultPrimName: "Root"
+        ),
+        primTree: USDPrimTree(path: "/Root", name: "Root", typeName: "Xform"),
+        statistics: USDGeometryStatistics(totalTriangles: 12, totalVertices: 8),
+        bounds: USDSceneBounds(maxExtent: 2),
+        diagnostics: [
+            USDDiagnostic(
+                severity: .info,
+                code: "fixture.loaded",
+                message: "loaded from fixture"
+            ),
+        ]
+    )
+
+    let encodedRequest = try JSONEncoder().encode(request)
+    let decodedRequest = try JSONDecoder().decode(USDStageInspectionRequest.self, from: encodedRequest)
+    #expect(decodedRequest == request)
+
+    let encodedInspection = try JSONEncoder().encode(inspection)
+    let decodedInspection = try JSONDecoder().decode(USDStageInspection.self, from: encodedInspection)
+    #expect(decodedInspection == inspection)
+}
+
+@Test
+func primRuntimeContractsArePureSwiftAndCodable() throws {
+    let request = USDPrimInspectionRequest(
+        stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
+        primPath: "/Root/Cube",
+        options: USDPrimInspectionOptions(
+            timeCode: .numeric(24),
+            includeAttributes: true,
+            includeRelationships: true,
+            includeCompositionArcs: true,
+            includeVariantSets: true,
+            includeTransform: true,
+            includeMaterialBinding: true,
+            includeBounds: true
+        )
+    )
+    let inspection = USDPrimInspection(
+        prim: USDPrimSummary(
+            path: "/Root/Cube",
+            name: "Cube",
+            typeName: "Mesh",
+            specifier: .def,
+            isDefined: true,
+            attributes: [
+                USDAttributeSummary(
+                    name: "visibility",
+                    typeName: "token",
+                    value: .token("inherited"),
+                    isAuthored: true,
+                    hasValue: true
+                ),
+            ],
+            relationships: [
+                USDRelationshipSummary(name: "material:binding", targets: ["/Root/Looks/Mat"]),
+            ]
+        ),
+        compositionArcs: [
+            USDCompositionArcSummary(
+                kind: .reference,
+                assetPath: "Props/Crate.usd",
+                primPath: "/Crate",
+                layerOffset: USDLayerOffset(offset: 24, scale: 1),
+                isInternal: false
+            ),
+            USDCompositionArcSummary(
+                kind: .payload,
+                primPath: "/PayloadRoot",
+                isInternal: true
+            ),
+        ],
+        variantSets: [
+            USDVariantSetSummary(
+                name: "modelingVariant",
+                choices: ["high", "proxy"],
+                selection: "proxy",
+                hasAuthoredSelection: true
+            ),
+        ],
+        transform: USDTransformInspection(
+            localTransform: USDTransformData(position: SIMD3<Double>(1, 2, 3))
+        ),
+        materialBinding: USDMaterialBindingInfo(
+            selectedPrimPath: "/Root/Cube",
+            effectiveMaterialPath: "/Root/Looks/Mat"
+        ),
+        bounds: USDSceneBounds(maxExtent: 4)
+    )
+
+    let encodedRequest = try JSONEncoder().encode(request)
+    let decodedRequest = try JSONDecoder().decode(USDPrimInspectionRequest.self, from: encodedRequest)
+    #expect(decodedRequest == request)
+
+    let encodedInspection = try JSONEncoder().encode(inspection)
+    let decodedInspection = try JSONDecoder().decode(USDPrimInspection.self, from: encodedInspection)
+    #expect(decodedInspection == inspection)
+}
+
+@Test
+func editRuntimeContractsArePureSwiftAndCodable() throws {
+    let request = USDEditRequest.setPrimTransform(
+        stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
+        primPath: "/Root/Cube",
+        transform: USDTransformData(
+            position: SIMD3<Double>(1, 2, 3),
+            rotationDegrees: SIMD3<Double>(0, 45, 0),
+            orientation: USDQuaternion(
+                real: 0.9238795325,
+                imaginary: USDVector3(x: 0, y: 0.3826834324, z: 0)
+            ),
+            scale: SIMD3<Double>(repeating: 2)
+        ),
+        options: USDTransformEditOptions(
+            authoringStyle: .commonTRSOrient,
+            timeCode: .default,
+            allowCreatingMissingOps: true
+        )
+    )
+    let result = USDEditResult(
+        refreshHints: USDEditRefreshHints(
+            reloadViewport: false,
+            refreshSceneGraph: false,
+            refreshInspector: true,
+            invalidateThumbnails: true,
+            changedPrimPaths: ["/Root/Cube"],
+            selectionPath: "/Root/Cube"
+        ),
+        diagnostics: [
+            USDDiagnostic(
+                severity: .info,
+                code: "transform.authored",
+                message: "transform authored",
+                subjectPath: "/Root/Cube"
+            ),
+        ]
+    )
+
+    let encodedRequest = try JSONEncoder().encode(request)
+    let decodedRequest = try JSONDecoder().decode(USDEditRequest.self, from: encodedRequest)
+    #expect(decodedRequest == request)
+
+    let encodedResult = try JSONEncoder().encode(result)
+    let decodedResult = try JSONDecoder().decode(USDEditResult.self, from: encodedResult)
+    #expect(decodedResult == result)
+}
+
+@Test
+func shellRuntimeProtocolCanBeImplementedWithoutRuntimeImports() async throws {
+    struct FixtureRuntime: USDStageRuntime {
+        func inspectStage(_ request: USDStageInspectionRequest) async throws -> USDStageInspection {
+            USDStageInspection(
+                stageURL: request.stageURL,
+                metadata: USDStageMetadata(defaultPrimName: "Root"),
+                primTree: USDPrimTree(path: "/Root", name: "Root", typeName: "Xform")
+            )
+        }
+
+        func inspectPrim(_ request: USDPrimInspectionRequest) async throws -> USDPrimInspection {
+            USDPrimInspection(
+                prim: USDPrimSummary(
+                    path: request.primPath,
+                    name: "Cube",
+                    typeName: "Mesh"
+                )
+            )
+        }
+
+        func edit(_ request: USDEditRequest) async throws -> USDEditResult {
+            switch request {
+            case .save:
+                USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
+            default:
+                USDEditResult()
+            }
+        }
+    }
+
+    let runtime = FixtureRuntime()
+    let stageURL = USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))
+
+    let stage = try await runtime.inspectStage(USDStageInspectionRequest(stageURL: stageURL))
+    #expect(stage.metadata.defaultPrimName == "Root")
+    #expect(stage.primTree?.path == "/Root")
+
+    let prim = try await runtime.inspectPrim(USDPrimInspectionRequest(stageURL: stageURL, primPath: "/Root/Cube"))
+    #expect(prim.prim.path == "/Root/Cube")
+    #expect(prim.prim.typeName == "Mesh")
+
+    let edit = try await runtime.edit(.save(stageURL: stageURL))
+    #expect(edit.refreshHints.refreshInspector == false)
+}
+
+@Test
 func publicContractsRemainSendable() {
     assertSendable(USDStageURL.self)
     assertSendable(USDStageHandle.self)
     assertSendable(USDPrimHandle.self)
     assertSendable(USDValue.self)
+    assertSendable(USDDiagnostic.self)
+    assertSendable(USDPrimSpecifier.self)
     assertSendable(USDPrimSummary.self)
     assertSendable(USDPrimTree.self)
     assertSendable(USDStageMetadata.self)
@@ -334,4 +563,13 @@ func publicContractsRemainSendable() {
     assertSendable(USDTransformInspection.self)
     assertSendable(USDGeometryStatistics.self)
     assertSendable(USDModelInfo.self)
+    assertSendable(USDStageInspectionRequest.self)
+    assertSendable(USDStageInspection.self)
+    assertSendable(USDCompositionArcSummary.self)
+    assertSendable(USDVariantSetSummary.self)
+    assertSendable(USDPrimInspectionRequest.self)
+    assertSendable(USDPrimInspection.self)
+    assertSendable(USDEditRequest.self)
+    assertSendable(USDEditResult.self)
+    assertSendable(SwiftUsdShellError.self)
 }

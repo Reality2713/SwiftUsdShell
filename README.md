@@ -8,6 +8,9 @@ This package is not a USD runtime. Importing SwiftUsdShell alone does not open,
 inspect, validate, render, or edit USD files. A separate runtime package or
 application service must implement these contracts and map them to a USD engine.
 
+For the full layering model, see
+[Docs/Architecture.md](Docs/Architecture.md).
+
 ## Boundary Rules
 
 - SwiftUsdShell must not import a USD runtime, C++ interop target, or private
@@ -25,15 +28,18 @@ application service must implement these contracts and map them to a USD engine.
 
 - Core identity: `USDStageURL`, `USDStageHandle`, `USDPrimHandle`, `USDPath`,
   `USDAssetPath`, `USDToken`, `USDLoadPolicy`.
-- Values and summaries: `USDValue`, vector/matrix values, `USDTimeCode`,
-  `USDAttributeSummary`, `USDRelationshipSummary`, `USDPrimSummary`,
-  `USDPrimTree`, `USDStageMetadata`.
+- Values and summaries: `USDValue`, vector/matrix/quaternion values,
+  `USDTimeCode`, `USDAttributeSummary`, `USDRelationshipSummary`,
+  `USDDiagnostic`, `USDPrimSummary`, `USDPrimTree`, `USDStageMetadata`.
 - Materials: material summaries, property summaries, binding information,
   generic semantic edit requests, and edit results.
 - Transforms: common transform data, authored xform-op summaries, and transform
   edit capability/restriction DTOs.
 - Statistics and model info: scene bounds, geometry statistics, animation
   status, blend shapes, and model metadata.
+- Runtime contracts: stage/prim inspection requests and results, composition
+  arc summaries for references and payloads, variant set summaries, generic edit
+  requests, refresh hints, and runtime errors.
 
 ## What Is Not In The Shell
 
@@ -46,6 +52,18 @@ SwiftUsdShell intentionally does not contain:
 
 Those concepts belong in runtime, renderer, application, or domain packages that
 depend on this shell.
+
+## Runtime Adapter Direction
+
+SwiftUsdShell should be paired with a separate generic runtime adapter, such as
+`SwiftUsdShellOpenUSD` or `SwiftUsdScene`, when an application needs to execute
+USD work. That adapter may import SwiftUsd/OpenUSD and implement shell protocols,
+but it must stay mechanical: open stages, inspect prims, perform generic edits,
+and map results back into shell DTOs.
+
+Application/domain layers remain above both packages. They own editor
+identity, import/export policy, selection mapping, component authoring,
+validation, repair, conversion, and workflow decisions.
 
 ## Release Checklist
 

@@ -176,6 +176,20 @@ public struct USDVector4: Hashable, Sendable, Codable {
     }
 }
 
+public struct USDQuaternion: Hashable, Sendable, Codable {
+    public var real: Double
+    public var imaginary: USDVector3
+
+    public init(real: Double, imaginary: USDVector3) {
+        self.real = real
+        self.imaginary = imaginary
+    }
+
+    public static var identity: Self {
+        Self(real: 1, imaginary: USDVector3(x: 0, y: 0, z: 0))
+    }
+}
+
 public struct USDMatrix4x4: Hashable, Sendable, Codable {
     public var values: [Double]
 
@@ -248,11 +262,47 @@ public struct USDRelationshipSummary: Hashable, Sendable, Codable {
     }
 }
 
+public enum USDDiagnosticSeverity: String, Hashable, Sendable, Codable, CaseIterable {
+    case info
+    case warning
+    case error
+}
+
+public struct USDDiagnostic: Hashable, Sendable, Codable {
+    public var severity: USDDiagnosticSeverity
+    public var code: String?
+    public var message: String
+    public var subjectPath: USDPath?
+
+    public init(
+        severity: USDDiagnosticSeverity = .info,
+        code: String? = nil,
+        message: String,
+        subjectPath: USDPath? = nil
+    ) {
+        self.severity = severity
+        self.code = code
+        self.message = message
+        self.subjectPath = subjectPath
+    }
+}
+
+public enum USDPrimSpecifier: String, Hashable, Sendable, Codable, CaseIterable {
+    case def
+    case over
+    case class_ = "class"
+    case unknown
+}
+
 public struct USDPrimSummary: Hashable, Sendable, Codable {
     public var path: USDPath
     public var name: USDToken
     public var typeName: USDToken?
+    public var specifier: USDPrimSpecifier?
+    public var isDefined: Bool?
     public var isActive: Bool
+    public var isAbstract: Bool
+    public var isInstanceable: Bool
     public var visibility: USDToken?
     public var purpose: USDToken?
     public var kind: USDToken?
@@ -263,7 +313,11 @@ public struct USDPrimSummary: Hashable, Sendable, Codable {
         path: USDPath,
         name: USDToken,
         typeName: USDToken? = nil,
+        specifier: USDPrimSpecifier? = nil,
+        isDefined: Bool? = nil,
         isActive: Bool = true,
+        isAbstract: Bool = false,
+        isInstanceable: Bool = false,
         visibility: USDToken? = nil,
         purpose: USDToken? = nil,
         kind: USDToken? = nil,
@@ -273,7 +327,11 @@ public struct USDPrimSummary: Hashable, Sendable, Codable {
         self.path = path
         self.name = name
         self.typeName = typeName
+        self.specifier = specifier
+        self.isDefined = isDefined
         self.isActive = isActive
+        self.isAbstract = isAbstract
+        self.isInstanceable = isInstanceable
         self.visibility = visibility
         self.purpose = purpose
         self.kind = kind
@@ -305,6 +363,9 @@ public struct USDPrimTree: Hashable, Sendable, Codable, Identifiable {
     public var path: USDPath
     public var name: USDToken
     public var typeName: USDToken?
+    public var specifier: USDPrimSpecifier?
+    public var isActive: Bool
+    public var isInstanceable: Bool
     public var purpose: USDToken?
     public var children: [USDPrimTree]
 
@@ -312,12 +373,18 @@ public struct USDPrimTree: Hashable, Sendable, Codable, Identifiable {
         path: USDPath,
         name: USDToken,
         typeName: USDToken? = nil,
+        specifier: USDPrimSpecifier? = nil,
+        isActive: Bool = true,
+        isInstanceable: Bool = false,
         purpose: USDToken? = nil,
         children: [USDPrimTree] = []
     ) {
         self.path = path
         self.name = name
         self.typeName = typeName
+        self.specifier = specifier
+        self.isActive = isActive
+        self.isInstanceable = isInstanceable
         self.purpose = purpose
         self.children = children
     }
@@ -508,15 +575,18 @@ public struct USDMaterialBindingInfo: Hashable, Sendable, Codable {
 public struct USDTransformData: Hashable, Sendable, Codable {
     public var position: SIMD3<Double>
     public var rotationDegrees: SIMD3<Double>
+    public var orientation: USDQuaternion?
     public var scale: SIMD3<Double>
 
     public init(
         position: SIMD3<Double> = .zero,
         rotationDegrees: SIMD3<Double> = .zero,
+        orientation: USDQuaternion? = nil,
         scale: SIMD3<Double> = SIMD3<Double>(repeating: 1)
     ) {
         self.position = position
         self.rotationDegrees = rotationDegrees
+        self.orientation = orientation
         self.scale = scale
     }
 }
@@ -578,6 +648,7 @@ public enum USDAuthoredXformOpPrecision: String, Hashable, Sendable, Codable {
 
 public enum USDAuthoredXformOpValue: Hashable, Sendable, Codable {
     case vector3(SIMD3<Double>)
+    case quaternion(USDQuaternion)
     case scalar(Double)
     case text(String)
 }
@@ -629,6 +700,29 @@ public struct USDTransformInspection: Hashable, Sendable, Codable {
         self.editCapability = editCapability
         self.restrictionReason = restrictionReason
         self.isAnimated = isAnimated
+    }
+}
+
+public enum USDTransformAuthoringStyle: String, Hashable, Sendable, Codable {
+    case runtimeDefault
+    case preserveCompatibleAuthoredStack
+    case commonTRSRotateXYZ
+    case commonTRSOrient
+}
+
+public struct USDTransformEditOptions: Hashable, Sendable, Codable {
+    public var authoringStyle: USDTransformAuthoringStyle
+    public var timeCode: USDTimeCode
+    public var allowCreatingMissingOps: Bool
+
+    public init(
+        authoringStyle: USDTransformAuthoringStyle = .runtimeDefault,
+        timeCode: USDTimeCode = .default,
+        allowCreatingMissingOps: Bool = true
+    ) {
+        self.authoringStyle = authoringStyle
+        self.timeCode = timeCode
+        self.allowCreatingMissingOps = allowCreatingMissingOps
     }
 }
 
@@ -850,9 +944,268 @@ public struct USDMaterialEditResult: Hashable, Sendable, Codable {
         self.convertedTo = convertedTo
     }
 }
-public enum SwiftUsdShellError: Error, Equatable, Sendable {
+
+// MARK: - Runtime Contracts
+
+public struct USDStageInspectionOptions: Hashable, Sendable, Codable {
+    public var loadPolicy: USDLoadPolicy
+    public var includePrimTree: Bool
+    public var includeStatistics: Bool
+    public var includeBounds: Bool
+
+    public init(
+        loadPolicy: USDLoadPolicy = .loadAll,
+        includePrimTree: Bool = true,
+        includeStatistics: Bool = false,
+        includeBounds: Bool = false
+    ) {
+        self.loadPolicy = loadPolicy
+        self.includePrimTree = includePrimTree
+        self.includeStatistics = includeStatistics
+        self.includeBounds = includeBounds
+    }
+}
+
+public struct USDStageInspectionRequest: Hashable, Sendable, Codable {
+    public var stageURL: USDStageURL
+    public var options: USDStageInspectionOptions
+
+    public init(
+        stageURL: USDStageURL,
+        options: USDStageInspectionOptions = .init()
+    ) {
+        self.stageURL = stageURL
+        self.options = options
+    }
+}
+
+public struct USDStageInspection: Hashable, Sendable, Codable {
+    public var stageURL: USDStageURL
+    public var metadata: USDStageMetadata
+    public var primTree: USDPrimTree?
+    public var statistics: USDGeometryStatistics?
+    public var bounds: USDSceneBounds?
+    public var diagnostics: [USDDiagnostic]
+
+    public init(
+        stageURL: USDStageURL,
+        metadata: USDStageMetadata = .init(),
+        primTree: USDPrimTree? = nil,
+        statistics: USDGeometryStatistics? = nil,
+        bounds: USDSceneBounds? = nil,
+        diagnostics: [USDDiagnostic] = []
+    ) {
+        self.stageURL = stageURL
+        self.metadata = metadata
+        self.primTree = primTree
+        self.statistics = statistics
+        self.bounds = bounds
+        self.diagnostics = diagnostics
+    }
+}
+
+public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
+    public var timeCode: USDTimeCode
+    public var includeAttributes: Bool
+    public var includeRelationships: Bool
+    public var includeCompositionArcs: Bool
+    public var includeVariantSets: Bool
+    public var includeTransform: Bool
+    public var includeMaterialBinding: Bool
+    public var includeBounds: Bool
+
+    public init(
+        timeCode: USDTimeCode = .default,
+        includeAttributes: Bool = true,
+        includeRelationships: Bool = true,
+        includeCompositionArcs: Bool = true,
+        includeVariantSets: Bool = true,
+        includeTransform: Bool = true,
+        includeMaterialBinding: Bool = false,
+        includeBounds: Bool = false
+    ) {
+        self.timeCode = timeCode
+        self.includeAttributes = includeAttributes
+        self.includeRelationships = includeRelationships
+        self.includeCompositionArcs = includeCompositionArcs
+        self.includeVariantSets = includeVariantSets
+        self.includeTransform = includeTransform
+        self.includeMaterialBinding = includeMaterialBinding
+        self.includeBounds = includeBounds
+    }
+}
+
+public struct USDPrimInspectionRequest: Hashable, Sendable, Codable {
+    public var stageURL: USDStageURL
+    public var primPath: USDPath
+    public var options: USDPrimInspectionOptions
+
+    public init(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        options: USDPrimInspectionOptions = .init()
+    ) {
+        self.stageURL = stageURL
+        self.primPath = primPath
+        self.options = options
+    }
+}
+
+public enum USDCompositionArcKind: String, Hashable, Sendable, Codable, CaseIterable {
+    case reference
+    case payload
+}
+
+public struct USDLayerOffset: Hashable, Sendable, Codable {
+    public var offset: Double
+    public var scale: Double
+
+    public init(offset: Double = 0, scale: Double = 1) {
+        self.offset = offset
+        self.scale = scale
+    }
+}
+
+public struct USDCompositionArcSummary: Hashable, Sendable, Codable {
+    public var kind: USDCompositionArcKind
+    public var assetPath: USDAssetPath?
+    public var primPath: USDPath?
+    public var layerOffset: USDLayerOffset?
+    public var isInternal: Bool
+
+    public init(
+        kind: USDCompositionArcKind,
+        assetPath: USDAssetPath? = nil,
+        primPath: USDPath? = nil,
+        layerOffset: USDLayerOffset? = nil,
+        isInternal: Bool = false
+    ) {
+        self.kind = kind
+        self.assetPath = assetPath
+        self.primPath = primPath
+        self.layerOffset = layerOffset
+        self.isInternal = isInternal
+    }
+}
+
+public struct USDVariantSetSummary: Hashable, Sendable, Codable, Identifiable {
+    public var id: USDToken { name }
+    public var name: USDToken
+    public var choices: [USDToken]
+    public var selection: USDToken?
+    public var hasAuthoredSelection: Bool
+
+    public init(
+        name: USDToken,
+        choices: [USDToken] = [],
+        selection: USDToken? = nil,
+        hasAuthoredSelection: Bool = false
+    ) {
+        self.name = name
+        self.choices = choices
+        self.selection = selection
+        self.hasAuthoredSelection = hasAuthoredSelection
+    }
+}
+
+public struct USDPrimInspection: Hashable, Sendable, Codable {
+    public var prim: USDPrimSummary
+    public var compositionArcs: [USDCompositionArcSummary]
+    public var variantSets: [USDVariantSetSummary]
+    public var transform: USDTransformInspection?
+    public var materialBinding: USDMaterialBindingInfo?
+    public var bounds: USDSceneBounds?
+    public var diagnostics: [USDDiagnostic]
+
+    public init(
+        prim: USDPrimSummary,
+        compositionArcs: [USDCompositionArcSummary] = [],
+        variantSets: [USDVariantSetSummary] = [],
+        transform: USDTransformInspection? = nil,
+        materialBinding: USDMaterialBindingInfo? = nil,
+        bounds: USDSceneBounds? = nil,
+        diagnostics: [USDDiagnostic] = []
+    ) {
+        self.prim = prim
+        self.compositionArcs = compositionArcs
+        self.variantSets = variantSets
+        self.transform = transform
+        self.materialBinding = materialBinding
+        self.bounds = bounds
+        self.diagnostics = diagnostics
+    }
+}
+
+public struct USDEditRefreshHints: Hashable, Sendable, Codable {
+    public var reloadViewport: Bool
+    public var refreshSceneGraph: Bool
+    public var refreshInspector: Bool
+    public var invalidateThumbnails: Bool
+    public var changedPrimPaths: [USDPath]
+    public var changedAssetPaths: [USDAssetPath]
+    public var selectionPath: USDPath?
+
+    public init(
+        reloadViewport: Bool = false,
+        refreshSceneGraph: Bool = false,
+        refreshInspector: Bool = true,
+        invalidateThumbnails: Bool = false,
+        changedPrimPaths: [USDPath] = [],
+        changedAssetPaths: [USDAssetPath] = [],
+        selectionPath: USDPath? = nil
+    ) {
+        self.reloadViewport = reloadViewport
+        self.refreshSceneGraph = refreshSceneGraph
+        self.refreshInspector = refreshInspector
+        self.invalidateThumbnails = invalidateThumbnails
+        self.changedPrimPaths = changedPrimPaths
+        self.changedAssetPaths = changedAssetPaths
+        self.selectionPath = selectionPath
+    }
+}
+
+public enum USDEditRequest: Hashable, Sendable, Codable {
+    case setDefaultPrim(stageURL: USDStageURL, primPath: USDPath)
+    case setMetersPerUnit(stageURL: USDStageURL, value: Double)
+    case setUpAxis(stageURL: USDStageURL, axis: USDToken)
+    case setPrimTransform(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        transform: USDTransformData,
+        options: USDTransformEditOptions
+    )
+    case save(stageURL: USDStageURL)
+}
+
+public struct USDEditResult: Hashable, Sendable, Codable {
+    public var refreshHints: USDEditRefreshHints
+    public var diagnostics: [USDDiagnostic]
+
+    public init(
+        refreshHints: USDEditRefreshHints = .init(),
+        diagnostics: [USDDiagnostic] = []
+    ) {
+        self.refreshHints = refreshHints
+        self.diagnostics = diagnostics
+    }
+}
+
+public protocol USDStageRuntime: Sendable {
+    func inspectStage(_ request: USDStageInspectionRequest) async throws -> USDStageInspection
+    func inspectPrim(_ request: USDPrimInspectionRequest) async throws -> USDPrimInspection
+    func edit(_ request: USDEditRequest) async throws -> USDEditResult
+}
+
+public enum SwiftUsdShellError: Error, Equatable, Sendable, Codable {
+    case fileNotFound(USDStageURL)
+    case stageOpenFailed(USDStageURL, diagnostic: String?)
     case missingStage(USDStageHandle)
     case missingPrim(USDPrimHandle)
+    case primNotFound(stageURL: USDStageURL, primPath: USDPath)
     case invalidPath(String)
+    case unsupportedSchema(String)
+    case invalidValue(String)
+    case saveFailed(USDStageURL, diagnostic: String?)
     case runtimeUnavailable
+    case underlyingDiagnostic(String)
 }
