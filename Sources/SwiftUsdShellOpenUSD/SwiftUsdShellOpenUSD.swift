@@ -420,20 +420,10 @@ private extension OpenUSDStageRuntime {
         for spec in prim.GetPrimStack() {
             let primSpec = spec.pointee
             arcs.append(contentsOf: primSpec.GetReferenceList().GetAddedOrExplicitItems().map {
-                compositionArc(
-                    kind: .reference,
-                    assetPath: stableOwnedString(describing: $0.GetAssetPath()),
-                    primPath: stableOwnedString(describing: $0.GetPrimPath().GetAsString()),
-                    layerOffset: $0.GetLayerOffset()
-                )
+                _ in USDCompositionArcSummary(kind: .reference)
             })
             arcs.append(contentsOf: primSpec.GetPayloadList().GetAddedOrExplicitItems().map {
-                compositionArc(
-                    kind: .payload,
-                    assetPath: stableOwnedString(describing: $0.GetAssetPath()),
-                    primPath: stableOwnedString(describing: $0.GetPrimPath().GetAsString()),
-                    layerOffset: $0.GetLayerOffset()
-                )
+                _ in USDCompositionArcSummary(kind: .payload)
             })
         }
         return arcs
