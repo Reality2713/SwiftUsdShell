@@ -408,7 +408,7 @@ private extension OpenUSDStageRuntime {
         prim.GetRelationships().map { relationship in
             var targets = SdfPathVector()
             _ = relationship.GetTargets(&targets)
-            USDRelationshipSummary(
+            return USDRelationshipSummary(
                 name: USDToken(stableOwnedString(describing: relationship.GetName().GetString())),
                 targets: targets.map { USDPath(stableOwnedString(describing: $0.GetAsString())) }
             )
