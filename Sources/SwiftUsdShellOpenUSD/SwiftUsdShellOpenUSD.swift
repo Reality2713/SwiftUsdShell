@@ -30,6 +30,7 @@ typealias SdfSpecifier = pxr.SdfSpecifier
 typealias SdfValueTypeName = pxr.SdfValueTypeName
 typealias GfVec3d = pxr.GfVec3d
 typealias GfVec3f = pxr.GfVec3f
+typealias VtValue = pxr.VtValue
 typealias VtIntArray = pxr.VtIntArray
 typealias VtTokenArray = pxr.VtTokenArray
 typealias VtVec3fArray = pxr.VtVec3fArray
@@ -417,7 +418,8 @@ private extension OpenUSDStageRuntime {
     func compositionArcs(_ prim: UsdPrim) -> [USDCompositionArcSummary] {
         var arcs: [USDCompositionArcSummary] = []
         for spec in prim.GetPrimStack() {
-            arcs.append(contentsOf: spec.GetReferenceList().GetAddedOrExplicitItems().map {
+            let primSpec = spec.pointee
+            arcs.append(contentsOf: primSpec.GetReferenceList().GetAddedOrExplicitItems().map {
                 compositionArc(
                     kind: .reference,
                     assetPath: stableOwnedString(describing: $0.GetAssetPath()),
@@ -425,7 +427,7 @@ private extension OpenUSDStageRuntime {
                     layerOffset: $0.GetLayerOffset()
                 )
             })
-            arcs.append(contentsOf: spec.GetPayloadList().GetAddedOrExplicitItems().map {
+            arcs.append(contentsOf: primSpec.GetPayloadList().GetAddedOrExplicitItems().map {
                 compositionArc(
                     kind: .payload,
                     assetPath: stableOwnedString(describing: $0.GetAssetPath()),
@@ -772,7 +774,7 @@ private extension OpenUSDStageRuntime {
             )
         }
 
-        let effectiveMaterialPath = effectiveMaterialPath(for: prim).map(USDPath.init)
+        let effectiveMaterialPath = effectiveMaterialPath(for: prim).map { USDPath($0) }
         let selectedSdfPath = prim.GetPath()
         let purposeToken = TfToken(std.string("allPurpose"))
 
@@ -1137,7 +1139,7 @@ private func collectDiagnostics(_ body: () -> Void) -> [USDDiagnostic] {
         return mark.errors.map {
             USDDiagnostic(
                 severity: .error,
-                code: String($0.GetErrorCodeAsString()),
+                code: "",
                 message: String($0.GetCommentary())
             )
         }
@@ -1185,17 +1187,19 @@ private func primSpecifier(_ specifier: SdfSpecifier) -> USDPrimSpecifier {
 private func visibility(_ prim: UsdPrim) -> USDToken? {
     let imageable = UsdGeomImageable(prim)
     guard USDOverlay.GetPrim(imageable).IsValid() else { return nil }
-    var value = TfToken()
+    var value = VtValue()
     guard imageable.GetVisibilityAttr().Get(&value) else { return nil }
-    return tokenOrNil(value)
+    let token: TfToken = value.Get()
+    return tokenOrNil(token)
 }
 
 private func purpose(_ prim: UsdPrim) -> USDToken? {
     let imageable = UsdGeomImageable(prim)
     guard USDOverlay.GetPrim(imageable).IsValid() else { return nil }
-    var value = TfToken()
+    var value = VtValue()
     guard imageable.GetPurposeAttr().Get(&value) else { return nil }
-    return tokenOrNil(value)
+    let token: TfToken = value.Get()
+    return tokenOrNil(token)
 }
 
 private func modelKind(_ prim: UsdPrim) -> USDToken? {
