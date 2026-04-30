@@ -52,6 +52,7 @@ private let nonXformableTypeNames: Set<String> = [
 /// remain independent from this adapter.
 public actor OpenUSDStageRuntime: USDStageRuntime {
     private var stages: [USDStageURL: UsdStage] = [:]
+    private var stageModificationTimes: [USDStageURL: TimeInterval] = [:]
 
     public init() {}
 
@@ -172,7 +173,9 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 private extension OpenUSDStageRuntime {
     func stage(for stageURL: USDStageURL, loadPolicy: USDLoadPolicy) throws -> UsdStage {
-        if let cached = stages[stageURL] {
+        let modificationTime = stageModificationTime(stageURL.url)
+        if let cached = stages[stageURL],
+           stageModificationTimes[stageURL] == modificationTime {
             return cached
         }
 
@@ -182,7 +185,13 @@ private extension OpenUSDStageRuntime {
         }
         let stage = USDOverlay.Dereference(stageRef)
         stages[stageURL] = stage
+        stageModificationTimes[stageURL] = modificationTime
         return stage
+    }
+
+    func stageModificationTime(_ url: URL) -> TimeInterval {
+        let date = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+        return date?.timeIntervalSinceReferenceDate ?? 0
     }
 
     func stageMetadata(_ stage: UsdStage) -> USDStageMetadata {
