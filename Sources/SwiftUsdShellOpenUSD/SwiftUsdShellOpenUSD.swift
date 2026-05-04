@@ -196,6 +196,14 @@ private extension OpenUSDStageRuntime {
 
     func stageMetadata(_ stage: UsdStage) -> USDStageMetadata {
         let defaultPrim = stage.GetDefaultPrim()
+        let animationTracks = stageAnimationTracks(stage)
+        let availableCameras = stageCameras(stage)
+        let authoredStartTimeCode = stage.GetStartTimeCode()
+        let authoredEndTimeCode = stage.GetEndTimeCode()
+        let sampledTimeRange = authoredEndTimeCode > authoredStartTimeCode || animationTracks.isEmpty
+            ? nil
+            : stageTimeSampleRange(stage)
+
         return USDStageMetadata(
             upAxis: tokenOrNil(pxr.UsdGeomGetStageUpAxis(USDOverlay.TfWeakPtr(stage))),
             metersPerUnit: pxr.UsdGeomGetStageMetersPerUnit(USDOverlay.TfWeakPtr(stage)),
@@ -203,9 +211,78 @@ private extension OpenUSDStageRuntime {
                 ? USDToken(stableOwnedString(describing: defaultPrim.GetName().GetString()))
                 : nil,
             timeCodesPerSecond: stage.GetTimeCodesPerSecond(),
-            startTimeCode: stage.GetStartTimeCode(),
-            endTimeCode: stage.GetEndTimeCode()
+            startTimeCode: sampledTimeRange?.start ?? authoredStartTimeCode,
+            endTimeCode: sampledTimeRange?.end ?? authoredEndTimeCode,
+            animationTracks: animationTracks,
+            availableCameras: availableCameras
         )
+    }
+
+    func stageTimeSampleRange(_ stage: UsdStage) -> (start: Double, end: Double)? {
+        var start: Double?
+        var end: Double?
+
+        for prim in stage.Traverse() {
+            for attribute in prim.GetAttributes() {
+                guard attribute.GetNumTimeSamples() > 0 else { continue }
+
+                guard let attributeRange = attributeTimeSampleRange(attribute) else { continue }
+                start = start.map { Swift.min($0, attributeRange.start) } ?? attributeRange.start
+                end = end.map { Swift.max($0, attributeRange.end) } ?? attributeRange.end
+            }
+        }
+
+        guard let start, let end, end > start else { return nil }
+        return (start, end)
+    }
+
+    func attributeTimeSampleRange(_ attribute: UsdAttribute) -> (start: Double, end: Double)? {
+        var lower = 0.0
+        var upper = 0.0
+        var hasTimeSamples = false
+        guard attribute.GetBracketingTimeSamples(
+            -Double.greatestFiniteMagnitude,
+            &lower,
+            &upper,
+            &hasTimeSamples
+        ), hasTimeSamples else { return nil }
+        let firstSample = Swift.min(lower, upper)
+
+        lower = 0.0
+        upper = 0.0
+        hasTimeSamples = false
+        guard attribute.GetBracketingTimeSamples(
+            Double.greatestFiniteMagnitude,
+            &lower,
+            &upper,
+            &hasTimeSamples
+        ), hasTimeSamples else { return nil }
+        let lastSample = Swift.max(lower, upper)
+
+        guard lastSample > firstSample else { return nil }
+        return (firstSample, lastSample)
+    }
+
+    func stageAnimationTracks(_ stage: UsdStage) -> [USDPath] {
+        var tracks: [USDPath] = []
+        for prim in stage.Traverse() {
+            let typeName = stableOwnedString(describing: prim.GetTypeName().GetString()).lowercased()
+            guard typeName == "skelanimation"
+                || typeName == "animation"
+                || typeName == "realitykittimeline"
+            else { continue }
+            tracks.append(USDPath(stableOwnedString(describing: prim.GetPath().GetAsString())))
+        }
+        return tracks
+    }
+
+    func stageCameras(_ stage: UsdStage) -> [USDPath] {
+        var cameras: [USDPath] = []
+        for prim in stage.Traverse() {
+            guard stableOwnedString(describing: prim.GetTypeName().GetString()) == "Camera" else { continue }
+            cameras.append(USDPath(stableOwnedString(describing: prim.GetPath().GetAsString())))
+        }
+        return cameras
     }
 
     func primTree(_ prim: UsdPrim) -> USDPrimTree {
