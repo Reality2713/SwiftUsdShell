@@ -311,8 +311,12 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 }
 
 private func probePlugin(_ name: String) -> Bool {
+    // TfWeakPtr validity checks are fragile across C++ interop versions.
+    // Use a defensive pattern: delegate to the registry's lookup, then
+    // verify the returned pointer can produce a non-empty name.
     let plugin = pxr.PlugRegistry.GetInstance().GetPluginWithName(std.string(name))
-    return plugin._isNonnull()
+    let pluginName = stableOwnedString(describing: plugin.GetName())
+    return !pluginName.isEmpty
 }
 
 private extension OpenUSDStageRuntime {
