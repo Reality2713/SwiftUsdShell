@@ -206,6 +206,71 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return pxr.PlugRegistry.GetInstance().RegisterPlugins(pluginPath)
     }
 
+    public func remapSkeletonPaths(
+        stage: USDStageURL,
+        skeletonPath: USDPath,
+        animationPath: USDPath,
+        output: USDStageURL
+    ) throws -> USDStageURL {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+
+        let skelPrim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(skeletonPath.rawValue))
+        )
+        let animPrim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(animationPath.rawValue))
+        )
+        guard skelPrim.IsValid(), animPrim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: skeletonPath)
+        }
+
+        let jointsAttr = skelPrim.GetAttribute(TfToken("joints"))
+        var jointsValue = VtValue()
+        guard jointsAttr.IsValid(), jointsAttr.Get(&jointsValue, UsdTimeCode.Default()) else {
+            throw SwiftUsdShellError.invalidValue("Missing joints on skeleton \(skeletonPath.rawValue)")
+        }
+        let skelJoints: VtTokenArray = jointsValue.Get()
+
+        let animJointsAttr = animPrim.GetAttribute(TfToken("joints"))
+        var animJointsValue = VtValue()
+        guard animJointsAttr.IsValid(), animJointsAttr.Get(&animJointsValue, UsdTimeCode.Default()) else {
+            throw SwiftUsdShellError.invalidValue("Missing joints on animation \(animationPath.rawValue)")
+        }
+        let animJoints: VtTokenArray = animJointsValue.Get()
+
+        if skelJoints.size() == animJoints.size() {
+            animJointsAttr.Set(VtValue(skelJoints), UsdTimeCode.Default())
+        } else {
+            var newJoints: [TfToken] = []
+            for i in 0..<animJoints.size() {
+                let aj = animJoints[i]
+                let ajStr = stableOwnedString(describing: aj.GetString())
+                var matched: TfToken?
+                for j in 0..<skelJoints.size() {
+                    let sj = skelJoints[j]
+                    let sjStr = stableOwnedString(describing: sj.GetString())
+                    if sjStr.hasSuffix(ajStr) || ajStr.hasSuffix(sjStr) {
+                        matched = sj
+                        break
+                    }
+                }
+                newJoints.append(matched ?? aj)
+            }
+            if newJoints.count == animJoints.size() {
+                animJointsAttr.Set(VtValue(VtTokenArray(newJoints)), UsdTimeCode.Default())
+            }
+        }
+
+        USDOverlay.Dereference(stagePtr).Export(
+            std.string(output.url.path), true,
+            pxr.SdfLayer.CreateFileFormatArguments()
+        )
+        return output
+    }
+
     public func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {

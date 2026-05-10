@@ -1333,6 +1333,15 @@ public protocol USDStageRuntime: Sendable {
     /// Make a prim Reality Composer Pro‑ready by injecting a delta keyframe
     /// into single‑sample transform ops.
     func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL
+
+    /// Remap the joint tokens on a `UsdSkelAnimation` to match those on a
+    /// `UsdSkelSkeleton`, then export the result as a new stage.
+    func remapSkeletonPaths(
+        stage: USDStageURL,
+        skeletonPath: USDPath,
+        animationPath: USDPath,
+        output: USDStageURL
+    ) throws -> USDStageURL
 }
 
 public enum SwiftUsdShellError: Error, Equatable, Sendable, Codable {
