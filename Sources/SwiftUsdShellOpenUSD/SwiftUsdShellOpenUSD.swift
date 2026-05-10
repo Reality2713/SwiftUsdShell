@@ -169,6 +169,82 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
         }
     }
+
+    public func probeCapabilities() -> USDRuntimeCapabilities {
+        var caps = USDRuntimeCapabilities()
+
+        #if canImport(OpenUSD.UsdImaging)
+        caps.hasUsdImaging = true
+        #endif
+
+        caps.hasImaging = probePlugin("HdPrmanLoader")
+            || probePlugin("HdEmbreeRendererPlugin")
+        caps.hasMaterialX = probePlugin("HdMaterialX")
+        caps.hasOpenImageIO = probePlugin("OIIO")
+        caps.hasOpenVDB = probePlugin("OpenVDB")
+        caps.hasPython = probePlugin("Python")
+        caps.hasOpenColorIO = probePlugin("OCIO")
+        caps.hasImageIO = probePlugin("ImageIO")
+        caps.hasEmbree = probePlugin("Embree")
+        caps.hasDraco = probePlugin("Draco")
+        caps.hasPtex = probePlugin("Ptex")
+        caps.hasPrman = probePlugin("Prman")
+        caps.hasAppleTextureConverter = probePlugin("AppleTextureConverter")
+        caps.hasATCCompressToFormat = probePlugin("ATCCompress")
+        caps.hasATCCompressMemory = probePlugin("ATCCompressMemory")
+        caps.hasATCDecompressFile = probePlugin("ATCDecompress")
+        caps.hasATCCompareFiles = probePlugin("ATCCompare")
+        caps.hasATCConvertGamut = probePlugin("ATCConvertGamut")
+        caps.hasATCGenerateMipmaps = probePlugin("ATCGenerateMipmaps")
+        caps.hasATCResizeWithFilter = probePlugin("ATCResizeWithFilter")
+
+        return caps
+    }
+
+    public func registerPlugin(at url: USDStageURL) -> Bool {
+        let pluginPath = std.string(url.url.path)
+        return pxr.PlugRegistry.GetInstance().RegisterPlugins(pluginPath)
+    }
+
+    public func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+
+        let xform = UsdGeomXformCommonAPI(prim)
+        var translation = GfVec3d(0, 0, 0)
+        var rotation = GfVec3f(0, 0, 0)
+        var scale = GfVec3f(1, 1, 1)
+        var pivot = GfVec3f(0, 0, 0)
+        var rotationOrder = UsdGeomXformCommonAPI.RotationOrder.RotationOrderXYZ
+
+        _ = xform.GetXformVectors(
+            &translation, &rotation, &scale, &pivot, &rotationOrder,
+            UsdTimeCode.Default()
+        )
+
+        // Inject a 1.5-frame delta so Reality Composer Pro treats the prim
+        // as animated.
+        rotation[0] = rotation[0] + 0.001
+        _ = xform.SetXformVectors(
+            translation, rotation, scale, pivot, rotationOrder,
+            UsdTimeCode(1.5)
+        )
+
+        USDOverlay.Dereference(stagePtr).Save()
+        return stage
+    }
+}
+
+private func probePlugin(_ name: String) -> Bool {
+    let plugin = pxr.PlugRegistry.GetInstance().GetPluginWithName(std.string(name))
+    return !plugin.empty()
 }
 
 private extension OpenUSDStageRuntime {

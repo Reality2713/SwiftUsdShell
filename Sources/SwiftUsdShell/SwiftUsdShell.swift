@@ -1242,10 +1242,97 @@ public struct USDEditResult: Hashable, Sendable, Codable {
     }
 }
 
+/// Runtime capability flags exposed by the underlying OpenUSD build.
+///
+/// Each flag indicates whether a particular OpenUSD subsystem or third-party
+/// library was compiled into the runtime. Hosts can use this snapshot to
+/// decide what features to present before opening a stage.
+public struct USDRuntimeCapabilities: Hashable, Sendable {
+    public var hasImaging: Bool
+    public var hasUsdImaging: Bool
+    public var hasMaterialX: Bool
+    public var hasOpenImageIO: Bool
+    public var hasOpenVDB: Bool
+    public var hasPython: Bool
+    public var hasOpenColorIO: Bool
+    public var hasImageIO: Bool
+    public var hasEmbree: Bool
+    public var hasDraco: Bool
+    public var hasPtex: Bool
+    public var hasPrman: Bool
+    public var hasAppleTextureConverter: Bool
+    public var hasATCCompressToFormat: Bool
+    public var hasATCCompressMemory: Bool
+    public var hasATCDecompressFile: Bool
+    public var hasATCCompareFiles: Bool
+    public var hasATCConvertGamut: Bool
+    public var hasATCGenerateMipmaps: Bool
+    public var hasATCResizeWithFilter: Bool
+
+    public init(
+        hasImaging: Bool = false,
+        hasUsdImaging: Bool = false,
+        hasMaterialX: Bool = false,
+        hasOpenImageIO: Bool = false,
+        hasOpenVDB: Bool = false,
+        hasPython: Bool = false,
+        hasOpenColorIO: Bool = false,
+        hasImageIO: Bool = false,
+        hasEmbree: Bool = false,
+        hasDraco: Bool = false,
+        hasPtex: Bool = false,
+        hasPrman: Bool = false,
+        hasAppleTextureConverter: Bool = false,
+        hasATCCompressToFormat: Bool = false,
+        hasATCCompressMemory: Bool = false,
+        hasATCDecompressFile: Bool = false,
+        hasATCCompareFiles: Bool = false,
+        hasATCConvertGamut: Bool = false,
+        hasATCGenerateMipmaps: Bool = false,
+        hasATCResizeWithFilter: Bool = false
+    ) {
+        self.hasImaging = hasImaging
+        self.hasUsdImaging = hasUsdImaging
+        self.hasMaterialX = hasMaterialX
+        self.hasOpenImageIO = hasOpenImageIO
+        self.hasOpenVDB = hasOpenVDB
+        self.hasPython = hasPython
+        self.hasOpenColorIO = hasOpenColorIO
+        self.hasImageIO = hasImageIO
+        self.hasEmbree = hasEmbree
+        self.hasDraco = hasDraco
+        self.hasPtex = hasPtex
+        self.hasPrman = hasPrman
+        self.hasAppleTextureConverter = hasAppleTextureConverter
+        self.hasATCCompressToFormat = hasATCCompressToFormat
+        self.hasATCCompressMemory = hasATCCompressMemory
+        self.hasATCDecompressFile = hasATCDecompressFile
+        self.hasATCCompareFiles = hasATCCompareFiles
+        self.hasATCConvertGamut = hasATCConvertGamut
+        self.hasATCGenerateMipmaps = hasATCGenerateMipmaps
+        self.hasATCResizeWithFilter = hasATCResizeWithFilter
+    }
+
+    public var supportsHydraLikeImaging: Bool {
+        hasImaging && hasUsdImaging
+    }
+}
+
 public protocol USDStageRuntime: Sendable {
     func inspectStage(_ request: USDStageInspectionRequest) async throws -> USDStageInspection
     func inspectPrim(_ request: USDPrimInspectionRequest) async throws -> USDPrimInspection
     func edit(_ request: USDEditRequest) async throws -> USDEditResult
+
+    /// Probe the runtime for available OpenUSD subsystems.
+    func probeCapabilities() -> USDRuntimeCapabilities
+
+    /// Register an OpenUSD plug‑in from a filesystem path.
+    /// Returns `true` when the plug‑in was loaded successfully.
+    func registerPlugin(at url: USDStageURL) -> Bool
+
+    /// Make a prim Reality Composer Pro‑ready by injecting a delta keyframe
+    /// into single‑sample transform ops.
+    func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL
 }
 
 public enum SwiftUsdShellError: Error, Equatable, Sendable, Codable {
