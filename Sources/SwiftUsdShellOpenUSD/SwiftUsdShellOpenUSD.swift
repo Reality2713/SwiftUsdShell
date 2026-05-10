@@ -466,7 +466,50 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             blendShapes: []
         )
     }
+
+    nonisolated public func variantDescriptors(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> [USDVariantSetSummary] {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else { return [] }
+        return variantSets(prim)
+    }
+
+    nonisolated public func exportVariantCombination(
+        stage: USDStageURL,
+        selections: [String: USDToken],
+        output: USDStageURL
+    ) throws -> USDStageURL {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let usdStage = USDOverlay.Dereference(stagePtr)
+        let defaultPrimPath = usdStage.GetDefaultPrim().GetPath()
+        if !defaultPrimPath.IsEmpty() {
+            let prim = usdStage.GetPrimAtPath(defaultPrimPath)
+            if prim.IsValid() {
+                let sets = prim.GetVariantSets()
+                for (setName, selectionToken) in selections {
+                    let variantSet = sets.GetVariantSet(std.string(setName))
+                    if variantSet.HasAuthoredVariantSelection() {
+                        variantSet.SetVariantSelection(std.string(selectionToken.rawValue))
+                    }
+                }
+            }
+        }
+        var exportArgs = pxr.SdfLayer.FileFormatArguments()
+        usdStage.Export(std.string(output.url.path), true, exportArgs)
+        return output
+    }
 }
+
 
 private func fileModificationDate(_ url: URL) -> Date? {
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date

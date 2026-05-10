@@ -1368,6 +1368,18 @@ public protocol USDStageRuntime: Sendable {
 
     /// High-level model information for a stage.
     func modelInfo(stage: USDStageURL) throws -> USDModelInfo
+
+    /// Read-only variant-set descriptors for a prim.
+    func variantDescriptors(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> [USDVariantSetSummary]
+
+    /// Export a new stage file with concrete variant selections applied.
+    func exportVariantCombination(
+        stage: USDStageURL,
+        selections: [String: USDToken],
+        output: USDStageURL
+    ) throws -> USDStageURL
 }
 
 /// Coarse notification describing a change observed on an inspection stage.
