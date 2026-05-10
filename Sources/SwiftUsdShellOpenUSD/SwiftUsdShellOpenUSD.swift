@@ -509,6 +509,14 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         usdStage.Export(std.string(output.url.path), true, exportArgs)
         return output
     }
+
+    nonisolated public func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary] {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        return materialSummaries(USDOverlay.Dereference(stagePtr).GetPseudoRoot())
+    }
 }
 
 

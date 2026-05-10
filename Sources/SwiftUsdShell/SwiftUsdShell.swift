@@ -1380,6 +1380,9 @@ public protocol USDStageRuntime: Sendable {
         selections: [String: USDToken],
         output: USDStageURL
     ) throws -> USDStageURL
+
+    /// All material prims discovered in a stage.
+    func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary]
 }
 
 /// Coarse notification describing a change observed on an inspection stage.
