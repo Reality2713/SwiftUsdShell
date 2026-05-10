@@ -1357,6 +1357,17 @@ public protocol USDStageRuntime: Sendable {
     func observeStageChanges(
         stage: USDStageURL
     ) -> AsyncStream<USDStageInspectionEvent>
+
+    /// Aggregate geometry statistics for the entire stage.
+    func sceneStatistics(stage: USDStageURL) throws -> USDGeometryStatistics
+
+    /// Geometry statistics for a single prim, or `nil` if not a mesh.
+    func primStatistics(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDGeometryStatistics?
+
+    /// High-level model information for a stage.
+    func modelInfo(stage: USDStageURL) throws -> USDModelInfo
 }
 
 /// Coarse notification describing a change observed on an inspection stage.

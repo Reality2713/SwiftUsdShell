@@ -2,6 +2,7 @@ import CxxStdlib
 import Foundation
 import OpenUSD
 import SwiftUsdShell
+import SwiftUsdShellOpenUSDHelpers
 
 typealias USDOverlay = OpenUSD.Overlay
 typealias pxr = pxrInternal_v0_26_3__pxrReserved__
@@ -333,8 +334,8 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         var refs: [(assetPath: String, primPath: String?)] = []
         for spec in prim.GetPrimStack() {
             for item in spec.pointee.GetReferenceList().GetAddedOrExplicitItems() {
-                let assetPathStr = stableOwnedString(describing: item.GetAssetPath())
-                let primPathStr = stableOwnedString(describing: item.GetPrimPath())
+                let assetPathStr = stableOwnedString(describing: SwiftUsdShellSdfReferenceAssetPath(item))
+                let primPathStr = stableOwnedString(describing: SwiftUsdShellSdfReferencePrimPath(item))
                 if !assetPathStr.isEmpty {
                     refs.append((
                         assetPath: assetPathStr,
@@ -357,10 +358,13 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
         func visit(_ prim: UsdPrim) {
             for spec in prim.GetPrimStack() {
+                let layer = spec.pointee.GetLayer()
                 for item in spec.pointee.GetReferenceList().GetAddedOrExplicitItems() {
-                    let assetPath = stableOwnedString(describing: item.GetAssetPath())
+                    let assetPath = stableOwnedString(describing: SwiftUsdShellSdfReferenceAssetPath(item))
                     if assetPath.isEmpty { continue }
-                    let resolved = stableOwnedString(describing: item.GetResolvedPath())
+                    let resolved = stableOwnedString(
+                        describing: SwiftUsdShellSdfReferenceResolvedAssetPath(layer, item)
+                    )
                     if resolved.isEmpty {
                         unresolved.insert(assetPath)
                     }
@@ -380,9 +384,10 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
     ) -> AsyncStream<USDStageInspectionEvent> {
         AsyncStream { continuation in
             let url = stage.url
-            var lastMod: Date? = fileModificationDate(url)
+            let initialModificationDate = fileModificationDate(url)
 
             let task = Task { @Sendable in
+                var lastMod = initialModificationDate
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(2))
                     let current = fileModificationDate(url)
@@ -404,6 +409,63 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 task.cancel()
             }
         }
+    }
+}
+
+    nonisolated public func sceneStatistics(stage: USDStageURL) throws -> USDGeometryStatistics {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        return geometryStatistics(USDOverlay.Dereference(stagePtr).GetPseudoRoot())
+    }
+
+    nonisolated public func primStatistics(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDGeometryStatistics? {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else { return nil }
+        let typeName = stableOwnedString(describing: prim.GetTypeName().GetString())
+        guard typeName == "Mesh" else { return nil }
+        return geometryStatistics(prim)
+    }
+
+    nonisolated public func modelInfo(stage: USDStageURL) throws -> USDModelInfo {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let stage = USDOverlay.Dereference(stagePtr)
+        let metadata = stageMetadata(stage)
+        let bounds = sceneBounds(stage)
+        let stats = geometryStatistics(stage.GetPseudoRoot())
+        let animTrackNames = metadata.animationTracks.map(\.rawValue)
+
+        let extent: SIMD3<Float> = bounds.map { $0.max - $0.min } ?? .zero
+
+        return USDModelInfo(
+            boundsExtent: extent,
+            boundsCenter: bounds?.center ?? .zero,
+            scale: .one,
+            upAxis: metadata.upAxis?.rawValue ?? "Y",
+            animationCount: metadata.animationTracks.count,
+            animationNames: animTrackNames,
+            metersPerUnit: metadata.metersPerUnit > 0 ? metadata.metersPerUnit : 1.0,
+            autoPlay: nil,
+            playbackMode: nil,
+            animatableStatus: !metadata.animationTracks.isEmpty ? .animatable : .unknown,
+            hasAnimationLibrary: !metadata.animationTracks.isEmpty,
+            skeletonJointCount: 0,
+            maxJointInfluences: 0,
+            hasSkinnedMesh: stats.meshCount > 0,
+            blendShapes: []
+        )
     }
 }
 

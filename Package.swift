@@ -30,10 +30,17 @@ let package = Package(
             name: "SwiftUsdShellOpenUSD",
             dependencies: [
                 "SwiftUsdShell",
+                "SwiftUsdShellOpenUSDHelpers",
                 .product(name: "OpenUSD", package: "SwiftUsd"),
             ],
             swiftSettings: [
                 .interoperabilityMode(.Cxx),
+            ]
+        ),
+        .target(
+            name: "SwiftUsdShellOpenUSDHelpers",
+            dependencies: [
+                .product(name: "OpenUSD", package: "SwiftUsd"),
             ]
         ),
         .testTarget(
