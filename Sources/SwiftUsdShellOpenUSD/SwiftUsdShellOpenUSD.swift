@@ -410,7 +410,6 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             }
         }
     }
-}
 
     nonisolated public func sceneStatistics(stage: USDStageURL) throws -> USDGeometryStatistics {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
