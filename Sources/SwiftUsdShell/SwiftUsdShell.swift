@@ -1374,29 +1374,6 @@ public protocol USDStageRuntime: Sendable {
     /// All material prims discovered in a stage.
     func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary]
 
-    /// Create a variant set on a prim with the given options and optional
-    /// default selection.
-        primPath: USDPath,
-        setName: String,
-        variantNames: [String],
-        defaultVariant: String?
-    ) throws -> USDStageURL
-
-    /// Add a reference arc into an existing variant.
-        primPath: USDPath,
-        setName: String,
-        variantName: String,
-        referenceAssetPath: String,
-        referencePrimPath: String?
-    ) throws -> USDStageURL
-
-    /// Add a payload arc into an existing variant.
-        primPath: USDPath,
-        setName: String,
-        variantName: String,
-        assetPath: String,
-        payloadPrimPath: String?
-    ) throws -> USDStageURL
 
     /// Prim hierarchy tree for the stage root.
     func primHierarchy(stage: USDStageURL) throws -> USDPrimTree?
