@@ -1343,11 +1343,118 @@ public protocol USDStageRuntime: Sendable {
         output: USDStageURL
     ) throws -> USDStageURL
 
-    /// External asset references authored on a prim.
-    func primReferences(
-        stage: USDStageURL,
-        primPath: USDPath
-    ) throws -> [(assetPath: String, primPath: String?)]
+    /// Observable stream of coarse stage-changes for a loaded inspection stage.
+    func observeStageChanges(
+        stage: USDStageURL
+    ) -> AsyncStream<USDStageInspectionEvent>
 
-    /// Unresolved asset paths for external dependencies of a stage.
-    /// Returning an empty array means all dependencies are resolved.
+    /// Aggregate geometry statistics for the entire stage.
+    func sceneStatistics(stage: USDStageURL) throws -> USDGeometryStatistics
+
+    /// Geometry statistics for a single prim, or `nil` if not a mesh.
+    func primStatistics(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDGeometryStatistics?
+
+    /// High-level model information for a stage.
+    func modelInfo(stage: USDStageURL) throws -> USDModelInfo
+
+    /// Read-only variant-set descriptors for a prim.
+    func variantDescriptors(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> [USDVariantSetSummary]
+
+    /// Export a new stage file with concrete variant selections applied.
+    func exportVariantCombination(
+        stage: USDStageURL,
+        selections: [String: USDToken],
+        output: USDStageURL
+    ) throws -> USDStageURL
+
+    /// All material prims discovered in a stage.
+    func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary]
+
+    /// Create a variant set on a prim with the given options and optional
+    /// default selection.
+        primPath: USDPath,
+        setName: String,
+        variantNames: [String],
+        defaultVariant: String?
+    ) throws -> USDStageURL
+
+    /// Add a reference arc into an existing variant.
+        primPath: USDPath,
+        setName: String,
+        variantName: String,
+        referenceAssetPath: String,
+        referencePrimPath: String?
+    ) throws -> USDStageURL
+
+    /// Add a payload arc into an existing variant.
+        primPath: USDPath,
+        setName: String,
+        variantName: String,
+        assetPath: String,
+        payloadPrimPath: String?
+    ) throws -> USDStageURL
+
+    /// Prim hierarchy tree for the stage root.
+    func primHierarchy(stage: USDStageURL) throws -> USDPrimTree?
+
+    /// Authored prim-level metadata and attributes without async suspension.
+    func primSummary(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDPrimSummary
+
+    /// Transform data for a prim without async suspension.
+    func primTransformData(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDTransformData?
+
+    /// Material binding information for a prim without async suspension.
+    func primMaterialBinding(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDMaterialBindingInfo?
+}
+
+/// Coarse notification describing a change observed on an inspection stage.
+public struct USDStageInspectionEvent: Sendable {
+    public enum Kind: String, Sendable {
+        case objectsChanged
+        case stageContentsChanged
+    }
+
+    public let kind: Kind
+    public let observedAt: Date
+    public let resyncedCount: Int
+    public let changedInfoOnlyCount: Int
+    public let samplePaths: [String]
+
+    public init(
+        kind: Kind,
+        observedAt: Date,
+        resyncedCount: Int = 0,
+        changedInfoOnlyCount: Int = 0,
+        samplePaths: [String] = []
+    ) {
+        self.kind = kind
+        self.observedAt = observedAt
+        self.resyncedCount = resyncedCount
+        self.changedInfoOnlyCount = changedInfoOnlyCount
+        self.samplePaths = samplePaths
+    }
+}
+
+public enum SwiftUsdShellError: Error, Equatable, Sendable, Codable {
+    case fileNotFound(USDStageURL)
+    case stageOpenFailed(USDStageURL, diagnostic: String?)
+    case missingStage(USDStageHandle)
+    case missingPrim(USDPrimHandle)
+    case primNotFound(stageURL: USDStageURL, primPath: USDPath)
+    case invalidPath(String)
+    case unsupportedSchema(String)
+    case invalidValue(String)
+    case saveFailed(USDStageURL, diagnostic: String?)
+    case runtimeUnavailable
+    case underlyingDiagnostic(String)
+}
