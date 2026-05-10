@@ -170,7 +170,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         }
     }
 
-    public func probeCapabilities() -> USDRuntimeCapabilities {
+    nonisolated public func probeCapabilities() -> USDRuntimeCapabilities {
         var caps = USDRuntimeCapabilities()
 
         #if canImport(OpenUSD.UsdImaging)
@@ -201,12 +201,12 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return caps
     }
 
-    public func registerPlugin(at url: USDStageURL) -> Bool {
+    nonisolated public func registerPlugin(at url: USDStageURL) -> Bool {
         let pluginPath = std.string(url.url.path)
         return pxr.PlugRegistry.GetInstance().RegisterPlugins(pluginPath)
     }
 
-    public func remapSkeletonPaths(
+    nonisolated public func remapSkeletonPaths(
         stage: USDStageURL,
         skeletonPath: USDPath,
         animationPath: USDPath,
@@ -271,7 +271,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return output
     }
 
-    public func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL {
+    nonisolated public func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
