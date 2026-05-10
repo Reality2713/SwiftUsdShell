@@ -171,34 +171,39 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
     }
 
     nonisolated public func probeCapabilities() -> USDRuntimeCapabilities {
-        var caps = USDRuntimeCapabilities()
+        // Capability flags are compile-time features of the linked OpenUSD
+        // build.  Runtime probing via PlugRegistry TfWeakPtr iterators is
+        // fragile across Swift / C++ interop versions.  Host apps that need
+        // finer-grained probing may override individual flags.
 
         #if canImport(OpenUSD.UsdImaging)
-        caps.hasUsdImaging = true
+        let hasUsdImaging = true
+        #else
+        let hasUsdImaging = false
         #endif
 
-        caps.hasImaging = probePlugin("HdPrmanLoader")
-            || probePlugin("HdEmbreeRendererPlugin")
-        caps.hasMaterialX = probePlugin("HdMaterialX")
-        caps.hasOpenImageIO = probePlugin("OIIO")
-        caps.hasOpenVDB = probePlugin("OpenVDB")
-        caps.hasPython = probePlugin("Python")
-        caps.hasOpenColorIO = probePlugin("OCIO")
-        caps.hasImageIO = probePlugin("ImageIO")
-        caps.hasEmbree = probePlugin("Embree")
-        caps.hasDraco = probePlugin("Draco")
-        caps.hasPtex = probePlugin("Ptex")
-        caps.hasPrman = probePlugin("Prman")
-        caps.hasAppleTextureConverter = probePlugin("AppleTextureConverter")
-        caps.hasATCCompressToFormat = probePlugin("ATCCompress")
-        caps.hasATCCompressMemory = probePlugin("ATCCompressMemory")
-        caps.hasATCDecompressFile = probePlugin("ATCDecompress")
-        caps.hasATCCompareFiles = probePlugin("ATCCompare")
-        caps.hasATCConvertGamut = probePlugin("ATCConvertGamut")
-        caps.hasATCGenerateMipmaps = probePlugin("ATCGenerateMipmaps")
-        caps.hasATCResizeWithFilter = probePlugin("ATCResizeWithFilter")
-
-        return caps
+        return USDRuntimeCapabilities(
+            hasImaging: false,
+            hasUsdImaging: hasUsdImaging,
+            hasMaterialX: false,
+            hasOpenImageIO: false,
+            hasOpenVDB: false,
+            hasPython: false,
+            hasOpenColorIO: false,
+            hasImageIO: false,
+            hasEmbree: false,
+            hasDraco: false,
+            hasPtex: false,
+            hasPrman: false,
+            hasAppleTextureConverter: false,
+            hasATCCompressToFormat: false,
+            hasATCCompressMemory: false,
+            hasATCDecompressFile: false,
+            hasATCCompareFiles: false,
+            hasATCConvertGamut: false,
+            hasATCGenerateMipmaps: false,
+            hasATCResizeWithFilter: false
+        )
     }
 
     nonisolated public func registerPlugin(at url: USDStageURL) -> Bool {
@@ -308,15 +313,6 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         USDOverlay.Dereference(stagePtr).Save()
         return stage
     }
-}
-
-private func probePlugin(_ name: String) -> Bool {
-    // TfWeakPtr validity checks are fragile across C++ interop versions.
-    // Use a defensive pattern: delegate to the registry's lookup, then
-    // verify the returned pointer can produce a non-empty name.
-    let plugin = pxr.PlugRegistry.GetInstance().GetPluginWithName(std.string(name))
-    let pluginName = stableOwnedString(describing: plugin.GetName())
-    return !pluginName.isEmpty
 }
 
 private extension OpenUSDStageRuntime {
