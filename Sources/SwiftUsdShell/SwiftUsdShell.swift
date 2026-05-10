@@ -1347,11 +1347,11 @@ public protocol USDStageRuntime: Sendable {
     func primReferences(
         stage: USDStageURL,
         primPath: USDPath
-    ) async throws -> [(assetPath: String, primPath: String?)]
+    ) throws -> [(assetPath: String, primPath: String?)]
 
     /// Unresolved asset paths for external dependencies of a stage.
     /// Returning an empty array means all dependencies are resolved.
-    func unresolvedDependencies(stage: USDStageURL) async throws -> [String]
+    func unresolvedDependencies(stage: USDStageURL) throws -> [String]
 
     /// Observable stream of coarse stage-changes for a loaded inspection stage.
     func observeStageChanges(

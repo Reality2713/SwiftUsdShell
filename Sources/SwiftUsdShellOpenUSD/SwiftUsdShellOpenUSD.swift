@@ -317,7 +317,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
     nonisolated public func primReferences(
         stage: USDStageURL,
         primPath: USDPath
-    ) async throws -> [(assetPath: String, primPath: String?)] {
+    ) throws -> [(assetPath: String, primPath: String?)] {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
@@ -346,7 +346,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return refs
     }
 
-    nonisolated public func unresolvedDependencies(stage: USDStageURL) async throws -> [String] {
+    nonisolated public func unresolvedDependencies(stage: USDStageURL) throws -> [String] {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
