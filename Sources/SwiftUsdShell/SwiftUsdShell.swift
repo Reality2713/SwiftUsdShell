@@ -1427,6 +1427,12 @@ public protocol USDStageRuntime: Sendable {
         stage: USDStageURL, primPath: USDPath
     ) throws -> USDTransformData?
 
+    /// Material binding information for a prim without async suspension.
+    func primMaterialBinding(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDMaterialBindingInfo?
+
+
 
 }
 

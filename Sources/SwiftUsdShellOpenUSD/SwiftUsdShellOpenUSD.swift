@@ -674,6 +674,21 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         )
     }
 
+    nonisolated public func primMaterialBinding(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDMaterialBindingInfo? {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else { return nil }
+        return materialBindingInfo(for: prim, selectedPath: primPath)
+    }
+
+
 
 
 private func fileModificationDate(_ url: URL) -> Date? {
