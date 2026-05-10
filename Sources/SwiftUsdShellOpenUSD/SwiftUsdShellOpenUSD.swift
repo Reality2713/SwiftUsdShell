@@ -203,7 +203,8 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
     nonisolated public func registerPlugin(at url: USDStageURL) -> Bool {
         let pluginPath = std.string(url.url.path)
-        return pxr.PlugRegistry.GetInstance().RegisterPlugins(pluginPath)
+        let plugins = pxr.PlugRegistry.GetInstance().RegisterPlugins(pluginPath)
+        return !plugins.empty()
     }
 
     nonisolated public func remapSkeletonPaths(
@@ -264,9 +265,11 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             }
         }
 
+        // Empty file-format arguments: let OpenUSD pick defaults from
+        // the layer's own file-format.
+        var args = pxr.SdfLayer.FileFormatArguments()
         USDOverlay.Dereference(stagePtr).Export(
-            std.string(output.url.path), true,
-            pxr.SdfLayer.CreateFileFormatArguments()
+            std.string(output.url.path), true, args
         )
         return output
     }
@@ -309,7 +312,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 private func probePlugin(_ name: String) -> Bool {
     let plugin = pxr.PlugRegistry.GetInstance().GetPluginWithName(std.string(name))
-    return !plugin.empty()
+    return plugin._isNonnull()
 }
 
 private extension OpenUSDStageRuntime {
