@@ -1417,6 +1417,17 @@ public protocol USDStageRuntime: Sendable {
     /// Prim hierarchy tree for the stage root.
     func primHierarchy(stage: USDStageURL) throws -> USDPrimTree?
 
+    /// Authored prim‑level metadata and attributes without async suspension.
+    func primSummary(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDPrimSummary
+
+    /// Transform data for a prim without async suspension.
+    func primTransformData(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDTransformData?
+
+
 }
 
 /// Coarse notification describing a change observed on an inspection stage.

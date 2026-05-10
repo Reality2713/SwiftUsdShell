@@ -630,6 +630,51 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 }
 
+    nonisolated public func primSummary(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDPrimSummary {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+        return primSummary(prim, includeAttributes: true, includeRelationships: false)
+    }
+
+    nonisolated public func primTransformData(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> USDTransformData? {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else { return nil }
+        let xform = UsdGeomXformCommonAPI(prim)
+        var translation = GfVec3d(0, 0, 0)
+        var rotation = GfVec3f(0, 0, 0)
+        var scale = GfVec3f(1, 1, 1)
+        var pivot = GfVec3f(0, 0, 0)
+        var rotationOrder = UsdGeomXformCommonAPI.RotationOrder.RotationOrderXYZ
+        guard xform.GetXformVectors(
+            &translation, &rotation, &scale, &pivot, &rotationOrder,
+            UsdTimeCode.Default()
+        ) else { return nil }
+        return USDTransformData(
+            position: SIMD3<Double>(translation[0], translation[1], translation[2]),
+            rotationDegrees: SIMD3<Double>(Double(rotation[0]), Double(rotation[1]), Double(rotation[2])),
+            scale: SIMD3<Double>(Double(scale[0]), Double(scale[1]), Double(scale[2]))
+        )
+    }
+
+
 
 private func fileModificationDate(_ url: URL) -> Date? {
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
