@@ -517,6 +517,106 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         }
         return materialSummaries(USDOverlay.Dereference(stagePtr).GetPseudoRoot())
     }
+
+    nonisolated public func createVariantSet(
+        stage: USDStageURL,
+        primPath: USDPath,
+        setName: String,
+        variantNames: [String],
+        defaultVariant: String?
+    ) throws -> USDStageURL {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+        var vsets = prim.GetVariantSets()
+        let added = vsets.AddVariantSet(std.string(setName))
+        guard added.IsValid() else {
+            throw SwiftUsdShellError.invalidValue("Failed to add variant set '\(setName)' on \(primPath.rawValue)")
+        }
+        for variantName in variantNames {
+            added.AddVariant(std.string(variantName))
+        }
+        if let defaultVariant {
+            added.SetVariantSelection(std.string(defaultVariant))
+        }
+        USDOverlay.Dereference(stagePtr).Save()
+        return stage
+    }
+
+    nonisolated public func addVariantReference(
+        stage: USDStageURL,
+        primPath: USDPath,
+        setName: String,
+        variantName: String,
+        referenceAssetPath: String,
+        referencePrimPath: String?
+    ) throws -> USDStageURL {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+        let vsets = prim.GetVariantSets()
+        let variantSet = vsets.GetVariantSet(std.string(setName))
+        variantSet.AddVariant(std.string(variantName))
+        variantSet.SetVariantSelection(std.string(variantName))
+
+        let ref = SdfReference(
+            std.string(referenceAssetPath),
+            referencePrimPath.map { SdfPath(std.string($0)) } ?? SdfPath()
+        )
+        let createdPrim = variantSet.GetVariant(std.string(variantName)).GetPrimSpec()
+        createdPrim.GetReferenceList().AddReference(ref)
+
+        USDOverlay.Dereference(stagePtr).Save()
+        return stage
+    }
+
+    nonisolated public func addVariantPayload(
+        stage: USDStageURL,
+        primPath: USDPath,
+        setName: String,
+        variantName: String,
+        assetPath: String,
+        payloadPrimPath: String?
+    ) throws -> USDStageURL {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+        let vsets = prim.GetVariantSets()
+        let variantSet = vsets.GetVariantSet(std.string(setName))
+        variantSet.AddVariant(std.string(variantName))
+        variantSet.SetVariantSelection(std.string(variantName))
+
+        let variantPrimSpec = variantSet.GetVariant(std.string(variantName)).GetPrimSpec()
+        let payload = SdfPayload(
+            std.string(assetPath),
+            payloadPrimPath.map { SdfPath(std.string($0)) } ?? SdfPath()
+        )
+        variantPrimSpec.GetPayloadList().AddPayload(payload)
+
+        USDOverlay.Dereference(stagePtr).Save()
+        return stage
+    }
 }
 
 
