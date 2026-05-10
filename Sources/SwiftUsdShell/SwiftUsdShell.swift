@@ -1342,6 +1342,49 @@ public protocol USDStageRuntime: Sendable {
         animationPath: USDPath,
         output: USDStageURL
     ) throws -> USDStageURL
+
+    /// External asset references authored on a prim.
+    func primReferences(
+        stage: USDStageURL,
+        primPath: USDPath
+    ) async throws -> [(assetPath: String, primPath: String?)]
+
+    /// Unresolved asset paths for external dependencies of a stage.
+    /// Returning an empty array means all dependencies are resolved.
+    func unresolvedDependencies(stage: USDStageURL) async throws -> [String]
+
+    /// Observable stream of coarse stage-changes for a loaded inspection stage.
+    func observeStageChanges(
+        stage: USDStageURL
+    ) -> AsyncStream<USDStageInspectionEvent>
+}
+
+/// Coarse notification describing a change observed on an inspection stage.
+public struct USDStageInspectionEvent: Sendable {
+    public enum Kind: String, Sendable {
+        case objectsChanged
+        case stageContentsChanged
+    }
+
+    public let kind: Kind
+    public let observedAt: Date
+    public let resyncedCount: Int
+    public let changedInfoOnlyCount: Int
+    public let samplePaths: [String]
+
+    public init(
+        kind: Kind,
+        observedAt: Date,
+        resyncedCount: Int = 0,
+        changedInfoOnlyCount: Int = 0,
+        samplePaths: [String] = []
+    ) {
+        self.kind = kind
+        self.observedAt = observedAt
+        self.resyncedCount = resyncedCount
+        self.changedInfoOnlyCount = changedInfoOnlyCount
+        self.samplePaths = samplePaths
+    }
 }
 
 public enum SwiftUsdShellError: Error, Equatable, Sendable, Codable {
