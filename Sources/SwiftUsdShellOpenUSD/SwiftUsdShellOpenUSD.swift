@@ -628,8 +628,6 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return primTree(pseudoRoot.GetChildren()[0])
     }
 
-}
-
     nonisolated public func primSummary(
         stage: USDStageURL, primPath: USDPath
     ) throws -> USDPrimSummary {
@@ -693,6 +691,8 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 private func fileModificationDate(_ url: URL) -> Date? {
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+}
+
 }
 
 private extension OpenUSDStageRuntime {
