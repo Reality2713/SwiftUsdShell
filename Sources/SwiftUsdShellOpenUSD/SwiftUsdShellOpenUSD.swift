@@ -445,6 +445,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         let bounds = sceneBounds(stage)
         let stats = geometryStatistics(stage.GetPseudoRoot())
         let animTrackNames = metadata.animationTracks.map(\.rawValue)
+        let metersPerUnit = metadata.metersPerUnit ?? 1.0
 
         let extent: SIMD3<Float> = bounds.map { $0.max - $0.min } ?? .zero
 
@@ -455,7 +456,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             upAxis: metadata.upAxis?.rawValue ?? "Y",
             animationCount: metadata.animationTracks.count,
             animationNames: animTrackNames,
-            metersPerUnit: metadata.metersPerUnit > 0 ? metadata.metersPerUnit : 1.0,
+            metersPerUnit: metersPerUnit > 0 ? metersPerUnit : 1.0,
             autoPlay: nil,
             playbackMode: nil,
             animatableStatus: !metadata.animationTracks.isEmpty ? .animatable : .unknown,
@@ -497,7 +498,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             if prim.IsValid() {
                 let sets = prim.GetVariantSets()
                 for (setName, selectionToken) in selections {
-                    let variantSet = sets.GetVariantSet(std.string(setName))
+                    var variantSet = sets.GetVariantSet(std.string(setName))
                     if variantSet.HasAuthoredVariantSelection() {
                         variantSet.SetVariantSelection(std.string(selectionToken.rawValue))
                     }
@@ -538,7 +539,7 @@ private extension OpenUSDStageRuntime {
         return date?.timeIntervalSinceReferenceDate ?? 0
     }
 
-    func stageMetadata(_ stage: UsdStage) -> USDStageMetadata {
+    nonisolated func stageMetadata(_ stage: UsdStage) -> USDStageMetadata {
         let defaultPrim = stage.GetDefaultPrim()
         let animationTracks = stageAnimationTracks(stage)
         let availableCameras = stageCameras(stage)
@@ -562,7 +563,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func stageTimeSampleRange(_ stage: UsdStage) -> (start: Double, end: Double)? {
+    nonisolated func stageTimeSampleRange(_ stage: UsdStage) -> (start: Double, end: Double)? {
         var start: Double?
         var end: Double?
 
@@ -580,7 +581,7 @@ private extension OpenUSDStageRuntime {
         return (start, end)
     }
 
-    func attributeTimeSampleRange(_ attribute: UsdAttribute) -> (start: Double, end: Double)? {
+    nonisolated func attributeTimeSampleRange(_ attribute: UsdAttribute) -> (start: Double, end: Double)? {
         var lower = 0.0
         var upper = 0.0
         var hasTimeSamples = false
@@ -607,7 +608,7 @@ private extension OpenUSDStageRuntime {
         return (firstSample, lastSample)
     }
 
-    func stageAnimationTracks(_ stage: UsdStage) -> [USDPath] {
+    nonisolated func stageAnimationTracks(_ stage: UsdStage) -> [USDPath] {
         var tracks: [USDPath] = []
         for prim in stage.Traverse() {
             let typeName = stableOwnedString(describing: prim.GetTypeName().GetString()).lowercased()
@@ -620,7 +621,7 @@ private extension OpenUSDStageRuntime {
         return tracks
     }
 
-    func stageCameras(_ stage: UsdStage) -> [USDPath] {
+    nonisolated func stageCameras(_ stage: UsdStage) -> [USDPath] {
         var cameras: [USDPath] = []
         for prim in stage.Traverse() {
             guard stableOwnedString(describing: prim.GetTypeName().GetString()) == "Camera" else { continue }
@@ -629,7 +630,7 @@ private extension OpenUSDStageRuntime {
         return cameras
     }
 
-    func primTree(_ prim: UsdPrim) -> USDPrimTree {
+    nonisolated func primTree(_ prim: UsdPrim) -> USDPrimTree {
         USDPrimTree(
             path: USDPath(stableOwnedString(describing: prim.GetPath().GetAsString())),
             name: USDToken(stableOwnedString(describing: prim.GetName().GetString())),
@@ -642,7 +643,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func geometryStatistics(_ root: UsdPrim) -> USDGeometryStatistics {
+    nonisolated func geometryStatistics(_ root: UsdPrim) -> USDGeometryStatistics {
         var totalTriangles = 0
         var totalVertices = 0
         var meshCount = 0
@@ -685,7 +686,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func sceneBounds(_ stage: UsdStage) -> USDSceneBounds? {
+    nonisolated func sceneBounds(_ stage: UsdStage) -> USDSceneBounds? {
         let defaultPrim = stage.GetDefaultPrim()
         if defaultPrim.IsValid(), let bounds = sceneBounds(defaultPrim, timeCode: .default) {
             return bounds
@@ -693,7 +694,7 @@ private extension OpenUSDStageRuntime {
         return combinedChildBounds(stage.GetPseudoRoot(), timeCode: .default)
     }
 
-    func sceneBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
+    nonisolated func sceneBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
         let imageable = UsdGeomImageable(prim)
         if USDOverlay.GetPrim(imageable).IsValid(),
            let bounds = sceneBounds(imageable, timeCode: timeCode) {
@@ -702,7 +703,7 @@ private extension OpenUSDStageRuntime {
         return combinedChildBounds(prim, timeCode: timeCode)
     }
 
-    func sceneBounds(_ imageable: UsdGeomImageable, timeCode: USDTimeCode) -> USDSceneBounds? {
+    nonisolated func sceneBounds(_ imageable: UsdGeomImageable, timeCode: USDTimeCode) -> USDSceneBounds? {
         let box = imageable.ComputeWorldBound(
             openUSDTimeCode(timeCode),
             TfToken(std.string("default")),
@@ -722,7 +723,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func combinedChildBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
+    nonisolated func combinedChildBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
         var combined: USDSceneBounds?
         for child in prim.GetChildren() {
             guard let childBounds = sceneBounds(child, timeCode: timeCode) else {
@@ -733,7 +734,7 @@ private extension OpenUSDStageRuntime {
         return combined
     }
 
-    func sceneBounds(min: SIMD3<Float>, max: SIMD3<Float>) -> USDSceneBounds {
+    nonisolated func sceneBounds(min: SIMD3<Float>, max: SIMD3<Float>) -> USDSceneBounds {
         let center = (min + max) / 2
         let extent = max - min
         return USDSceneBounds(
@@ -744,7 +745,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func union(_ lhs: USDSceneBounds, _ rhs: USDSceneBounds) -> USDSceneBounds {
+    nonisolated func union(_ lhs: USDSceneBounds, _ rhs: USDSceneBounds) -> USDSceneBounds {
         sceneBounds(
             min: SIMD3<Float>(
                 Swift.min(lhs.min.x, rhs.min.x),
@@ -759,7 +760,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func meshGeometryCounts(_ prim: UsdPrim) -> (triangles: Int, vertices: Int) {
+    nonisolated func meshGeometryCounts(_ prim: UsdPrim) -> (triangles: Int, vertices: Int) {
         let mesh = UsdGeomMesh(prim)
         guard USDOverlay.GetPrim(mesh).IsValid() else {
             return (0, 0)
@@ -787,7 +788,7 @@ private extension OpenUSDStageRuntime {
         return (triangleCount, vertexCount)
     }
 
-    func shaderIdentifier(_ prim: UsdPrim) -> String? {
+    nonisolated func shaderIdentifier(_ prim: UsdPrim) -> String? {
         let idAttr = prim.GetAttribute(TfToken(std.string("info:id")))
         guard idAttr.IsValid() else { return nil }
 
@@ -800,7 +801,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    func primSummary(
+    nonisolated func primSummary(
         _ prim: UsdPrim,
         includeAttributes: Bool,
         includeRelationships: Bool
@@ -822,7 +823,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func attributes(_ prim: UsdPrim) -> [USDAttributeSummary] {
+    nonisolated func attributes(_ prim: UsdPrim) -> [USDAttributeSummary] {
         prim.GetAttributes().map { attribute in
             USDAttributeSummary(
                 name: USDToken(stableOwnedString(describing: attribute.GetName().GetString())),
@@ -834,7 +835,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    func relationships(_ prim: UsdPrim) -> [USDRelationshipSummary] {
+    nonisolated func relationships(_ prim: UsdPrim) -> [USDRelationshipSummary] {
         prim.GetRelationships().map { relationship in
             var targets = SdfPathVector()
             _ = relationship.GetTargets(&targets)
@@ -845,7 +846,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    func compositionArcs(_ prim: UsdPrim) -> [USDCompositionArcSummary] {
+    nonisolated func compositionArcs(_ prim: UsdPrim) -> [USDCompositionArcSummary] {
         var arcs: [USDCompositionArcSummary] = []
         for spec in prim.GetPrimStack() {
             let primSpec = spec.pointee
@@ -859,7 +860,7 @@ private extension OpenUSDStageRuntime {
         return arcs
     }
 
-    func variantSets(_ prim: UsdPrim) -> [USDVariantSetSummary] {
+    nonisolated func variantSets(_ prim: UsdPrim) -> [USDVariantSetSummary] {
         let sets = prim.GetVariantSets()
         return sets.GetNames().map { name in
             let nameString = stableOwnedString(describing: name)
