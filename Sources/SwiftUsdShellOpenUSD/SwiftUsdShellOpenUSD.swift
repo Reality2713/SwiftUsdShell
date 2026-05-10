@@ -315,69 +315,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return stage
     }
 
-    nonisolated public func primReferences(
-        stage: USDStageURL,
-        primPath: USDPath
-    ) throws -> [(assetPath: String, primPath: String?)] {
-        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
-        guard stagePtr._isNonnull() else {
-            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
-        }
 
-        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
-            SdfPath(std.string(primPath.rawValue))
-        )
-        guard prim.IsValid() else {
-            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
-        }
-
-        var refs: [(assetPath: String, primPath: String?)] = []
-        for spec in prim.GetPrimStack() {
-            for item in spec.pointee.GetReferenceList().GetAddedOrExplicitItems() {
-                let assetPathStr = stableOwnedString(describing: SwiftUsdShellSdfReferenceAssetPath(item))
-                let primPathStr = stableOwnedString(describing: SwiftUsdShellSdfReferencePrimPath(item))
-                if !assetPathStr.isEmpty {
-                    refs.append((
-                        assetPath: assetPathStr,
-                        primPath: primPathStr.isEmpty ? nil : primPathStr
-                    ))
-                }
-            }
-        }
-        return refs
-    }
-
-    nonisolated public func unresolvedDependencies(stage: USDStageURL) throws -> [String] {
-        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
-        guard stagePtr._isNonnull() else {
-            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
-        }
-
-        var unresolved: Set<String> = []
-        let root = USDOverlay.Dereference(stagePtr).GetPseudoRoot()
-
-        func visit(_ prim: UsdPrim) {
-            for spec in prim.GetPrimStack() {
-                let layer = spec.pointee.GetLayer()
-                for item in spec.pointee.GetReferenceList().GetAddedOrExplicitItems() {
-                    let assetPath = stableOwnedString(describing: SwiftUsdShellSdfReferenceAssetPath(item))
-                    if assetPath.isEmpty { continue }
-                    let resolved = stableOwnedString(
-                        describing: SwiftUsdShellSdfReferenceResolvedAssetPath(layer, item)
-                    )
-                    if resolved.isEmpty {
-                        unresolved.insert(assetPath)
-                    }
-                }
-            }
-            for child in prim.GetChildren() {
-                visit(child)
-            }
-        }
-
-        visit(root)
-        return Array(unresolved)
-    }
 
     nonisolated public func observeStageChanges(
         stage: USDStageURL
