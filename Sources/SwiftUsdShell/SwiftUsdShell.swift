@@ -1413,6 +1413,10 @@ public protocol USDStageRuntime: Sendable {
         assetPath: String,
         payloadPrimPath: String?
     ) throws -> USDStageURL
+
+    /// Prim hierarchy tree for the stage root.
+    func primHierarchy(stage: USDStageURL) throws -> USDPrimTree?
+
 }
 
 /// Coarse notification describing a change observed on an inspection stage.

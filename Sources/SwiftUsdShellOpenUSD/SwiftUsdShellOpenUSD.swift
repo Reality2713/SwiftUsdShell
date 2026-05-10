@@ -617,6 +617,17 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         USDOverlay.Dereference(stagePtr).Save()
         return stage
     }
+
+    nonisolated public func primHierarchy(stage: USDStageURL) throws -> USDPrimTree? {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let pseudoRoot = USDOverlay.Dereference(stagePtr).GetPseudoRoot()
+        guard pseudoRoot.GetChildren().size() > 0 else { return nil }
+        return primTree(pseudoRoot.GetChildren()[0])
+    }
+
 }
 
 
