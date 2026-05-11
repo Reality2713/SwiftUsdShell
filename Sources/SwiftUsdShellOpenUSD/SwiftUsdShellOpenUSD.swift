@@ -629,7 +629,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
     nonisolated public func normalizeAssetPath(_ reference: String) -> String {
         reference.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-    nonisolated public func exportFlattenedSessionLayer(
+    }
 
     nonisolated public func validateStage(
         stageURL: USDStageURL,
