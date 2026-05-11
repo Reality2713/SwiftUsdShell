@@ -1396,13 +1396,7 @@ public protocol USDStageRuntime: Sendable {
     /// Run the OpenUSD validation registry against a stage.
     /// Returns an empty array when the validation framework is not compiled in.
 
-    /// Create a USDZ archive from pre-staged files without flattening.
-    /// `inputs` are paths relative to `currentDirectory`.
-        inputs: [String],
-        outputURL: USDStageURL
-    ) throws
-
-    func validateStage(stageURL: USDStageURL, keywords: [String]) throws -> [USDValidationIssue]
+        func validateStage(stageURL: USDStageURL, keywords: [String]) throws -> [USDValidationIssue]
 
     /// Extract texture files from a USDZ package to a directory.
     /// Returns the URLs of the extracted files.
@@ -1412,11 +1406,7 @@ public protocol USDStageRuntime: Sendable {
         refresh: Bool
     ) throws -> [URL]
 
-    /// Open a session layer, flatten its sublayers into a single stage,
-    /// and export as USD or USDZ.
-    ) throws
-
-}
+    }
 
 /// Coarse notification describing a change observed on an inspection stage.
 public struct USDStageInspectionEvent: Sendable {
