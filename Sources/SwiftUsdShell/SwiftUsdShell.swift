@@ -1395,6 +1395,15 @@ public protocol USDStageRuntime: Sendable {
 
     /// Run the OpenUSD validation registry against a stage.
     /// Returns an empty array when the validation framework is not compiled in.
+
+    /// Create a USDZ archive from pre-staged files without flattening.
+    /// `inputs` are paths relative to `currentDirectory`.
+    func createVerbatimUSDZPackage(
+        currentDirectory: USDStageURL,
+        inputs: [String],
+        outputURL: USDStageURL
+    ) throws
+
     func validateStage(stageURL: USDStageURL, keywords: [String]) throws -> [USDValidationIssue]
 
 }
