@@ -628,6 +628,37 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
     }
 }
 
+
+    nonisolated public func validateStage(
+        stageURL: USDStageURL,
+        keywords: [String]
+    ) throws -> [USDValidationIssue] {
+        #if canImport(SwiftUsd_PXR_ENABLE_USD_VALIDATION_SUPPORT)
+        let stagePtr = UsdStage.Open(std.string(stageURL.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stageURL, diagnostic: nil)
+        }
+        let issues = try USDOverlay.UsdValidationWrapper.validateStage(
+            stagePtr,
+            keywords: keywords
+        )
+        return issues.map { issue in
+            USDValidationIssue(
+                name: issue.name,
+                identifier: issue.identifier,
+                severity: USDValidationSeverity(rawValue: issue.severity.rawValue) ?? .none,
+                message: issue.message,
+                validatorName: issue.validatorName,
+                sites: issue.sites.map {
+                    USDValidationSite(kind: $0.kind, objectPath: $0.objectPath, layerIdentifier: $0.layerIdentifier)
+                }
+            )
+        }
+        #else
+        return []
+        #endif
+    }
+
 private func fileModificationDate(_ url: URL) -> Date? {
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
 }

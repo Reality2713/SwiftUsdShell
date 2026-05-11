@@ -1392,6 +1392,11 @@ public protocol USDStageRuntime: Sendable {
     func primMaterialBinding(
         stage: USDStageURL, primPath: USDPath
     ) throws -> USDMaterialBindingInfo?
+
+    /// Run the OpenUSD validation registry against a stage.
+    /// Returns an empty array when the validation framework is not compiled in.
+    func validateStage(stageURL: USDStageURL, keywords: [String]) throws -> [USDValidationIssue]
+
 }
 
 /// Coarse notification describing a change observed on an inspection stage.
