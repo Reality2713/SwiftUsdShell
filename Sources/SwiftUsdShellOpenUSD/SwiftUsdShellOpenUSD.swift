@@ -648,6 +648,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         guard writer.Save() else {
             throw SwiftUsdShellError.invalidValue("Failed to write USDZ archive")
         }
+    }
 
     nonisolated public func extractPackagedTextures(
         from usdzURL: USDStageURL,
@@ -678,8 +679,6 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             extracted.append(destURL)
         }
         return extracted
-    }
-
     }
 
 
@@ -793,6 +792,7 @@ private func addToVerbatimPackage(
         return []
         #endif
     }
+}
 
 private func fileModificationDate(_ url: URL) -> Date? {
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
