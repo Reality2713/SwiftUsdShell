@@ -1270,7 +1270,7 @@ private extension OpenUSDStageRuntime {
         return summaries
     }
 
-    func materialSummary(for prim: UsdPrim, stage: UsdStage) -> USDMaterialSummary? {
+    nonisolated func materialSummary(for prim: UsdPrim, stage: UsdStage) -> USDMaterialSummary? {
         if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Material" {
             return materialSummary(prim)
         }
@@ -1285,7 +1285,7 @@ private extension OpenUSDStageRuntime {
         return materialSummary(materialPrim)
     }
 
-    func materialSummary(_ materialPrim: UsdPrim) -> USDMaterialSummary? {
+    nonisolated func materialSummary(_ materialPrim: UsdPrim) -> USDMaterialSummary? {
         let material = UsdShadeMaterial(materialPrim)
         guard material.GetPrim().IsValid() else {
             return nil
@@ -1516,7 +1516,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func effectiveMaterialPath(for prim: UsdPrim) -> String? {
+    nonisolated func effectiveMaterialPath(for prim: UsdPrim) -> String? {
         let bindingAPI = UsdShadeMaterialBindingAPI(prim)
         let material = bindingAPI.ComputeBoundMaterial()
         if material.GetPrim().IsValid() {
@@ -1547,7 +1547,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    func directBindingDetails(
+    nonisolated func directBindingDetails(
         for prim: UsdPrim,
         purposeToken: TfToken
     ) -> (targetPath: String?, strength: USDMaterialBindingStrength?) {
