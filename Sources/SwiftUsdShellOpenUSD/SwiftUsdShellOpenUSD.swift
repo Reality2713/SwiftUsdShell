@@ -649,6 +649,58 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
     }
 
 
+    nonisolated public func exportFlattenedSessionLayer(
+        sessionLayerURL: USDStageURL,
+        outputURL: USDStageURL,
+        isUsdz: Bool
+    ) throws {
+        let metaStagePtr = UsdStage.Open(std.string(sessionLayerURL.url.path), UsdStage.InitialLoadSet.LoadNone)
+        guard metaStagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(sessionLayerURL, diagnostic: nil)
+        }
+        let metaStage = USDOverlay.Dereference(metaStagePtr)
+        let sessionLayer = USDOverlay.Dereference(metaStage.GetRootLayer())
+        let stagePtr = UsdStage.CreateInMemory(std.string("ExportStage"), UsdStage.InitialLoadSet.LoadAll)
+        let stage = USDOverlay.Dereference(stagePtr)
+        stage.SetTimeCodesPerSecond(metaStage.GetTimeCodesPerSecond())
+        stage.SetFramesPerSecond(metaStage.GetFramesPerSecond())
+        var mpuVal = VtValue()
+        if metaStage.GetMetadata(TfToken("metersPerUnit"), &mpuVal) {
+            stage.SetMetadata(TfToken("metersPerUnit"), mpuVal)
+        }
+        var upAxisVal = VtValue()
+        if metaStage.GetMetadata(TfToken("upAxis"), &upAxisVal) {
+            stage.SetMetadata(TfToken("upAxis"), upAxisVal)
+        }
+        let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
+        if sessionLayer.HasDefaultPrim() {
+            rootLayer.SetDefaultPrim(sessionLayer.GetDefaultPrim())
+        }
+        let rootDir = sessionLayerURL.url.deletingLastPathComponent()
+        let subLayerPaths = sessionLayer.GetSubLayerPaths()
+        var exportSubLayers = rootLayer.GetSubLayerPaths()
+        for i in 0..<subLayerPaths.size() {
+            let subPathStr = stableOwnedString(describing: subLayerPaths[i])
+            let trimmed = subPathStr.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+            let resolvedPath = rootDir.appendingPathComponent(trimmed).path
+            if FileManager.default.fileExists(atPath: resolvedPath) {
+                exportSubLayers.push_back(std.string(resolvedPath))
+            }
+        }
+        var exportArgs = pxr.SdfLayer.FileFormatArguments()
+        if isUsdz {
+            exportArgs[std.string("format")] = std.string("usdz")
+        }
+        let flattenedLayerPtr = stage.Flatten(true)
+        guard flattenedLayerPtr._isNonnull() else {
+            throw SwiftUsdShellError.invalidValue("Failed to flatten session layer")
+        }
+        guard USDOverlay.Dereference(flattenedLayerPtr).Export(std.string(outputURL.url.path), exportArgs) else {
+            throw SwiftUsdShellError.saveFailed(outputURL, diagnostic: nil)
+        }
+    }
+
+
 private func addToVerbatimPackage(
     sourceURL: URL,
     archivePath: String,

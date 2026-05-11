@@ -1408,6 +1408,15 @@ public protocol USDStageRuntime: Sendable {
 
 }
 
+
+    /// Open a session layer, flatten its sublayers into a single stage,
+    /// and export as USD or USDZ.
+    func exportFlattenedSessionLayer(
+        sessionLayerURL: USDStageURL,
+        outputURL: USDStageURL,
+        isUsdz: Bool
+    ) throws
+
 /// Coarse notification describing a change observed on an inspection stage.
 public struct USDStageInspectionEvent: Sendable {
     public enum Kind: String, Sendable {
