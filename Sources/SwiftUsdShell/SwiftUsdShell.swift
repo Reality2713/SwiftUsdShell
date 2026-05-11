@@ -1398,8 +1398,6 @@ public protocol USDStageRuntime: Sendable {
 
     /// Create a USDZ archive from pre-staged files without flattening.
     /// `inputs` are paths relative to `currentDirectory`.
-    func createVerbatimUSDZPackage(
-        currentDirectory: USDStageURL,
         inputs: [String],
         outputURL: USDStageURL
     ) throws
@@ -1416,10 +1414,6 @@ public protocol USDStageRuntime: Sendable {
 
     /// Open a session layer, flatten its sublayers into a single stage,
     /// and export as USD or USDZ.
-    func exportFlattenedSessionLayer(
-        sessionLayerURL: USDStageURL,
-        outputURL: USDStageURL,
-        isUsdz: Bool
     ) throws
 
 }
