@@ -1,3 +1,5 @@
+import Foundation
+
 public enum USDTextureCompressionFormat: String, Equatable, Hashable, Sendable, Codable {
     case astc, bc7, etc2RGBA
 }
