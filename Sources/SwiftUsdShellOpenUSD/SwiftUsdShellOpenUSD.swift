@@ -802,8 +802,6 @@ private extension OpenUSDStageRuntime {
     func stage(for stageURL: USDStageURL, loadPolicy: USDLoadPolicy) throws -> UsdStage {
         let modificationTime = stageModificationTime(stageURL.url)
 
-}
-
         if let cached = stages[stageURL],
            stageModificationTimes[stageURL] == modificationTime {
             return cached
