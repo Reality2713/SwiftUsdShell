@@ -1406,9 +1406,6 @@ public protocol USDStageRuntime: Sendable {
 
     func validateStage(stageURL: USDStageURL, keywords: [String]) throws -> [USDValidationIssue]
 
-}
-
-
     /// Extract texture files from a USDZ package to a directory.
     /// Returns the URLs of the extracted files.
     func extractPackagedTextures(
@@ -1417,7 +1414,6 @@ public protocol USDStageRuntime: Sendable {
         refresh: Bool
     ) throws -> [URL]
 
-
     /// Open a session layer, flatten its sublayers into a single stage,
     /// and export as USD or USDZ.
     func exportFlattenedSessionLayer(
@@ -1425,6 +1421,8 @@ public protocol USDStageRuntime: Sendable {
         outputURL: USDStageURL,
         isUsdz: Bool
     ) throws
+
+}
 
 /// Coarse notification describing a change observed on an inspection stage.
 public struct USDStageInspectionEvent: Sendable {
