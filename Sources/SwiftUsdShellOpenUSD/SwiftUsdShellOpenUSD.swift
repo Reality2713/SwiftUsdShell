@@ -171,39 +171,131 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
     }
 
     nonisolated public func probeCapabilities() -> USDRuntimeCapabilities {
-        // Capability flags are compile-time features of the linked OpenUSD
-        // build.  Runtime probing via PlugRegistry TfWeakPtr iterators is
-        // fragile across Swift / C++ interop versions.  Host apps that need
-        // finer-grained probing may override individual flags.
+        #if canImport(SwiftUsd_PXR_ENABLE_IMAGING_SUPPORT)
+        let hasImaging = true
+        #else
+        let hasImaging = false
+        #endif
 
-        #if canImport(OpenUSD.UsdImaging)
+        #if canImport(SwiftUsd_PXR_ENABLE_USD_IMAGING_SUPPORT)
         let hasUsdImaging = true
         #else
         let hasUsdImaging = false
         #endif
 
+        #if canImport(SwiftUsd_PXR_ENABLE_MATERIALX_SUPPORT)
+        let hasMaterialX = true
+        #else
+        let hasMaterialX = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_OPENIMAGEIO_SUPPORT)
+        let hasOpenImageIO = true
+        #else
+        let hasOpenImageIO = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_OPENVDB_SUPPORT)
+        let hasOpenVDB = true
+        #else
+        let hasOpenVDB = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_PYTHON_SUPPORT)
+        let hasPython = true
+        #else
+        let hasPython = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_OPENCOLORIO_SUPPORT)
+        let hasOpenColorIO = true
+        #else
+        let hasOpenColorIO = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_IMAGEIO_SUPPORT)
+        let hasImageIO = true
+        #else
+        let hasImageIO = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_EMBREE_SUPPORT)
+        let hasEmbree = true
+        #else
+        let hasEmbree = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_DRACO_SUPPORT)
+        let hasDraco = true
+        #else
+        let hasDraco = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_PTEX_SUPPORT)
+        let hasPtex = true
+        #else
+        let hasPtex = false
+        #endif
+
+        #if canImport(SwiftUsd_PXR_ENABLE_PRMAN_SUPPORT)
+        let hasPrman = true
+        #else
+        let hasPrman = false
+        #endif
+
+        let hasATC = probeAppleTextureConverter()
+
         return USDRuntimeCapabilities(
-            hasImaging: false,
+            hasImaging: hasImaging,
             hasUsdImaging: hasUsdImaging,
-            hasMaterialX: false,
-            hasOpenImageIO: false,
-            hasOpenVDB: false,
-            hasPython: false,
-            hasOpenColorIO: false,
-            hasImageIO: false,
-            hasEmbree: false,
-            hasDraco: false,
-            hasPtex: false,
-            hasPrman: false,
-            hasAppleTextureConverter: false,
-            hasATCCompressToFormat: false,
-            hasATCCompressMemory: false,
-            hasATCDecompressFile: false,
-            hasATCCompareFiles: false,
-            hasATCConvertGamut: false,
-            hasATCGenerateMipmaps: false,
-            hasATCResizeWithFilter: false
+            hasMaterialX: hasMaterialX,
+            hasOpenImageIO: hasOpenImageIO,
+            hasOpenVDB: hasOpenVDB,
+            hasPython: hasPython,
+            hasOpenColorIO: hasOpenColorIO,
+            hasImageIO: hasImageIO,
+            hasEmbree: hasEmbree,
+            hasDraco: hasDraco,
+            hasPtex: hasPtex,
+            hasPrman: hasPrman,
+            hasAppleTextureConverter: hasATC,
+            hasATCCompressToFormat: hasATC,
+            hasATCCompressMemory: hasATC,
+            hasATCDecompressFile: hasATC,
+            hasATCCompareFiles: hasATC,
+            hasATCConvertGamut: hasATC,
+            hasATCGenerateMipmaps: hasATC,
+            hasATCResizeWithFilter: hasATC
         )
+    }
+
+    nonisolated private func probeAppleTextureConverter() -> Bool {
+        #if os(macOS)
+        let fm = FileManager.default
+        var candidates: [URL] = []
+        if let envDir = ProcessInfo.processInfo.environment["DEVELOPER_DIR"], !envDir.isEmpty {
+            candidates.append(URL(fileURLWithPath: envDir))
+        }
+        candidates.append(URL(fileURLWithPath: "/Applications/Xcode.app/Contents/Developer"))
+        if let apps = try? fm.contentsOfDirectory(
+            at: URL(fileURLWithPath: "/Applications"),
+            includingPropertiesForKeys: nil
+        ) {
+            for app in apps where app.lastPathComponent.hasPrefix("Xcode") && app.pathExtension == "app" {
+                candidates.append(app.appendingPathComponent("Contents/Developer"))
+            }
+        }
+        for dir in candidates {
+            let header = dir.appendingPathComponent("usr/include/AppleTextureConverter.h")
+            let lib = dir.appendingPathComponent("usr/lib/libAppleTextureConverter.a")
+            if fm.fileExists(atPath: header.path), fm.fileExists(atPath: lib.path) {
+                return true
+            }
+        }
+        return false
+        #else
+        return false
+        #endif
     }
 
     nonisolated public func registerPlugin(at url: USDStageURL) -> Bool {
@@ -531,15 +623,13 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 
 
-nonisolated private func fileModificationDate(_ url: URL) -> Date? {
-
     nonisolated public func normalizeAssetPath(_ reference: String) -> String {
         reference.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
     }
-
-    try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
 }
 
+private func fileModificationDate(_ url: URL) -> Date? {
+    try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
 }
 
 private extension OpenUSDStageRuntime {
