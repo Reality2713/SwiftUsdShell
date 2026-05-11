@@ -650,9 +650,9 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 identifier: issue.identifier,
                 severity: USDValidationSeverity(rawValue: issue.severity.rawValue) ?? .none,
                 message: issue.message,
-                validatorName: issue.validatorName,
+                validatorName: stableOwnedString(describing: issue.validatorName),
                 sites: issue.sites.map {
-                    USDValidationSite(kind: $0.kind, objectPath: $0.objectPath, layerIdentifier: $0.layerIdentifier)
+                    USDValidationSite(kind: stableOwnedString(describing: $0.kind), objectPath: stableOwnedString(describing: $0.objectPath), layerIdentifier: stableOwnedString(describing: $0.layerIdentifier))
                 }
             )
         }
