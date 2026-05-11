@@ -1301,7 +1301,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func materialSummaryType(_ material: UsdShadeMaterial) -> USDMaterialSummaryType {
+    nonisolated func materialSummaryType(_ material: UsdShadeMaterial) -> USDMaterialSummaryType {
         let surfaceShader = material.ComputeSurfaceSource(TfToken(), nil, nil)
         guard surfaceShader.GetPrim().IsValid() else {
             return .unknown
@@ -1317,7 +1317,7 @@ private extension OpenUSDStageRuntime {
         return .unknown
     }
 
-    func materialProperties(_ material: UsdShadeMaterial) -> [USDMaterialPropertySummary] {
+    nonisolated func materialProperties(_ material: UsdShadeMaterial) -> [USDMaterialPropertySummary] {
         let surfaceShader = material.ComputeSurfaceSource(TfToken(), nil, nil)
         guard surfaceShader.GetPrim().IsValid() else {
             return []
@@ -1567,7 +1567,7 @@ private extension OpenUSDStageRuntime {
         return (nil, nil)
     }
 
-    func firstBindingTarget(from relationship: UsdRelationship) -> String? {
+    nonisolated func firstBindingTarget(from relationship: UsdRelationship) -> String? {
         var targets = SdfPathVector()
         _ = relationship.GetTargets(&targets)
         guard !targets.empty() else { return nil }
