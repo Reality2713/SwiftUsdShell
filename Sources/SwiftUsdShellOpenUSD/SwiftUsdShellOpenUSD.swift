@@ -899,7 +899,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    func transformInspection(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDTransformInspection? {
+    nonisolated func transformInspection(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDTransformInspection? {
         let xform = UsdGeomXformCommonAPI(prim)
         var translation = GfVec3d(0, 0, 0)
         var rotation = GfVec3f(0, 0, 0)
@@ -934,7 +934,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func authoredTransformInspection(
+    nonisolated func authoredTransformInspection(
         _ prim: UsdPrim,
         localTransform: USDTransformData
     ) -> USDTransformInspection {
@@ -1058,7 +1058,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func collectAuthoredOps(for prim: UsdPrim) -> [USDAuthoredXformOp] {
+    nonisolated func collectAuthoredOps(for prim: UsdPrim) -> [USDAuthoredXformOp] {
         let order = xformOpOrder(prim)
         var seen = Set<String>()
         var ops: [USDAuthoredXformOp] = []
@@ -1089,7 +1089,7 @@ private extension OpenUSDStageRuntime {
         return ops
     }
 
-    func xformOpOrder(_ prim: UsdPrim) -> [String] {
+    nonisolated func xformOpOrder(_ prim: UsdPrim) -> [String] {
         let attr = prim.GetAttribute(TfToken(std.string("xformOpOrder")))
         guard attr.IsValid() else { return [] }
 
@@ -1103,7 +1103,7 @@ private extension OpenUSDStageRuntime {
         return order
     }
 
-    func authoredOp(
+    nonisolated func authoredOp(
         for attr: UsdAttribute,
         token: String,
         isInverse: Bool
@@ -1125,7 +1125,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func authoredXformValue(
+    nonisolated func authoredXformValue(
         for attr: UsdAttribute,
         kind: USDAuthoredXformOpKind
     ) -> USDAuthoredXformOpValue? {
@@ -1139,7 +1139,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    func xformVector3Value(_ attr: UsdAttribute) -> SIMD3<Double>? {
+    nonisolated func xformVector3Value(_ attr: UsdAttribute) -> SIMD3<Double>? {
         let typeName = attr.GetTypeName()
         if typeName == SdfValueTypeName.Double3
             || typeName == SdfValueTypeName.Point3d
@@ -1160,7 +1160,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    func xformScalarValue(_ attr: UsdAttribute) -> Double? {
+    nonisolated func xformScalarValue(_ attr: UsdAttribute) -> Double? {
         let typeName = attr.GetTypeName()
         if typeName == SdfValueTypeName.Double {
             var value = 0.0
@@ -1177,7 +1177,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    func setCommonTransform(
+    nonisolated func setCommonTransform(
         _ transform: USDTransformData,
         on prim: UsdPrim,
         options: USDTransformEditOptions
@@ -1348,7 +1348,7 @@ private extension OpenUSDStageRuntime {
         return properties
     }
 
-    func materialProperty(_ input: UsdShadeInput) -> USDMaterialPropertySummary? {
+    nonisolated func materialProperty(_ input: UsdShadeInput) -> USDMaterialPropertySummary? {
         let attr = input.GetAttr()
         guard attr.IsValid(), attr.HasValue() else {
             return nil
@@ -1426,7 +1426,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func textureProperty(_ input: UsdShadeInput, depth: Int) -> USDMaterialPropertyInfo? {
+    nonisolated func textureProperty(_ input: UsdShadeInput, depth: Int) -> USDMaterialPropertyInfo? {
         guard depth < 5 else { return nil }
 
         if let direct = textureValue(input.GetAttr()) {
@@ -1446,7 +1446,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    func textureProperty(
+    nonisolated func textureProperty(
         source: UsdShadeConnectableAPI,
         sourceName: String,
         depth: Int
@@ -1494,7 +1494,7 @@ private extension OpenUSDStageRuntime {
         return textureValue(fileAttr)
     }
 
-    func textureValue(_ attr: UsdAttribute) -> USDMaterialPropertyInfo? {
+    nonisolated func textureValue(_ attr: UsdAttribute) -> USDMaterialPropertyInfo? {
         guard attr.IsValid() else {
             return nil
         }
