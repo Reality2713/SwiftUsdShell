@@ -35,6 +35,8 @@ typealias VtIntArray = pxr.VtIntArray
 typealias VtTokenArray = pxr.VtTokenArray
 typealias VtVec3fArray = pxr.VtVec3fArray
 typealias SdfZipFileWriter = pxr.SdfZipFileWriter
+typealias SdfZipFile = pxr.SdfZipFile
+
 
 
 private let nonXformableTypeNames: Set<String> = [
@@ -646,6 +648,38 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         guard writer.Save() else {
             throw SwiftUsdShellError.invalidValue("Failed to write USDZ archive")
         }
+
+    nonisolated public func extractPackagedTextures(
+        from usdzURL: USDStageURL,
+        to outputDirectory: URL,
+        refresh: Bool
+    ) throws -> [URL] {
+        let zipFile = SdfZipFile.Open(std.string(usdzURL.url.path))
+        guard Bool(zipFile) else {
+            throw SwiftUsdShellError.stageOpenFailed(usdzURL, diagnostic: nil)
+        }
+        let imageExtensions = Set(["jpg", "jpeg", "png", "exr", "hdr", "tif", "tiff", "bmp", "ktx2"])
+        var extracted: [URL] = []
+        let fm = FileManager.default
+        try fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        for entry in zipFile {
+            let filename = String(entry.pointee)
+            let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
+            guard imageExtensions.contains(ext) else { continue }
+            let destURL = outputDirectory.appendingPathComponent(URL(fileURLWithPath: filename).lastPathComponent)
+            if !refresh, fm.fileExists(atPath: destURL.path) {
+                extracted.append(destURL)
+                continue
+            }
+            let fileInfo = entry.GetFileInfo()
+            guard fileInfo.compressionMethod == 0, let dataPtr = entry.GetFile() else { continue }
+            let data = Data(bytes: dataPtr, count: Int(fileInfo.size))
+            try data.write(to: destURL)
+            extracted.append(destURL)
+        }
+        return extracted
+    }
+
     }
 
 

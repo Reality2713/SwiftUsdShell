@@ -1409,6 +1409,15 @@ public protocol USDStageRuntime: Sendable {
 }
 
 
+    /// Extract texture files from a USDZ package to a directory.
+    /// Returns the URLs of the extracted files.
+    func extractPackagedTextures(
+        from usdzURL: USDStageURL,
+        to outputDirectory: URL,
+        refresh: Bool
+    ) throws -> [URL]
+
+
     /// Open a session layer, flatten its sublayers into a single stage,
     /// and export as USD or USDZ.
     func exportFlattenedSessionLayer(
