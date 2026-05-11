@@ -532,6 +532,11 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 
 nonisolated private func fileModificationDate(_ url: URL) -> Date? {
+
+    nonisolated public func normalizeAssetPath(_ reference: String) -> String {
+        reference.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+    }
+
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
 }
 
