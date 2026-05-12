@@ -1481,7 +1481,10 @@ private extension OpenUSDStageRuntime {
 
     nonisolated func materialProperty(_ input: UsdShadeInput) -> USDMaterialPropertySummary? {
         let attr = input.GetAttr()
-        guard attr.IsValid(), attr.HasValue() else {
+        guard attr.IsValid(), attr.GetResolveInfo().ValueIsBlocked() == false else {
+            return nil
+        }
+        guard attr.HasAuthoredValueOpinion() || attr.HasValue() else {
             return nil
         }
 
@@ -1560,19 +1563,26 @@ private extension OpenUSDStageRuntime {
     nonisolated func textureProperty(_ input: UsdShadeInput, depth: Int) -> USDMaterialPropertyInfo? {
         guard depth < 5 else { return nil }
 
-        let sources = input.GetConnectedSources(nil)
-        if sources.size() > 0 {
-            let sourceInfo = sources[0]
-            if let connected = textureProperty(
-                source: sourceInfo.source,
-                sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
-                depth: depth + 1
-            ) {
-                return connected
+        let attr = input.GetAttr()
+        if attr.IsValid(), attr.GetResolveInfo().ValueIsBlocked() {
+            return nil
+        }
+
+        if input.HasConnectedSource() {
+            let sources = input.GetConnectedSources(nil)
+            if sources.size() > 0 {
+                let sourceInfo = sources[0]
+                if let connected = textureProperty(
+                    source: sourceInfo.source,
+                    sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
+                    depth: depth + 1
+                ) {
+                    return connected
+                }
             }
         }
 
-        return textureValue(input.GetAttr())
+        return textureValue(attr)
     }
 
     nonisolated func textureProperty(
@@ -1591,14 +1601,20 @@ private extension OpenUSDStageRuntime {
         if !sourceName.isEmpty {
             let output = connectable.GetOutput(TfToken(std.string(sourceName)))
             if output.GetAttr().IsValid() {
-                let sources = output.GetConnectedSources(nil)
-                if sources.size() > 0 {
-                    let info = sources[0]
-                    return textureProperty(
-                        source: info.source,
-                        sourceName: stableOwnedString(describing: info.sourceName.GetString()),
-                        depth: depth + 1
-                    )
+                if output.GetAttr().GetResolveInfo().ValueIsBlocked() {
+                    return nil
+                }
+
+                if output.HasConnectedSource() {
+                    let sources = output.GetConnectedSources(nil)
+                    if sources.size() > 0 {
+                        let info = sources[0]
+                        return textureProperty(
+                            source: info.source,
+                            sourceName: stableOwnedString(describing: info.sourceName.GetString()),
+                            depth: depth + 1
+                        )
+                    }
                 }
             }
 
