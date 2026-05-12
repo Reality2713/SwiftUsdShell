@@ -1459,6 +1459,11 @@ private extension OpenUSDStageRuntime {
             let input = inputs[index]
             let name = stableOwnedString(describing: input.GetBaseName().GetString())
 
+            if let property = materialProperty(input) {
+                properties.append(property)
+                continue
+            }
+
             if let texture = textureProperty(input, depth: 0) {
                 properties.append(
                     USDMaterialPropertySummary(
@@ -1470,10 +1475,6 @@ private extension OpenUSDStageRuntime {
                 continue
             }
 
-            guard let property = materialProperty(input) else {
-                continue
-            }
-            properties.append(property)
         }
         return properties
     }
@@ -1559,21 +1560,19 @@ private extension OpenUSDStageRuntime {
     nonisolated func textureProperty(_ input: UsdShadeInput, depth: Int) -> USDMaterialPropertyInfo? {
         guard depth < 5 else { return nil }
 
-        if let direct = textureValue(input.GetAttr()) {
-            return direct
-        }
-
         let sources = input.GetConnectedSources(nil)
-        guard sources.size() > 0 else {
-            return nil
+        if sources.size() > 0 {
+            let sourceInfo = sources[0]
+            if let connected = textureProperty(
+                source: sourceInfo.source,
+                sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
+                depth: depth + 1
+            ) {
+                return connected
+            }
         }
 
-        let sourceInfo = sources[0]
-        return textureProperty(
-            source: sourceInfo.source,
-            sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
-            depth: depth + 1
-        )
+        return textureValue(input.GetAttr())
     }
 
     nonisolated func textureProperty(
@@ -1583,7 +1582,7 @@ private extension OpenUSDStageRuntime {
     ) -> USDMaterialPropertyInfo? {
         guard depth < 5 else { return nil }
 
-        let prim = USDOverlay.GetPrim(source)
+        let prim = source.GetPrim()
         guard prim.IsValid() else {
             return nil
         }
