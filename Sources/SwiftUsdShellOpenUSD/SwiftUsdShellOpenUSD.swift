@@ -1009,7 +1009,75 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         outputURL: USDStageURL,
         isUsdz: Bool
     ) throws {
-        throw SwiftUsdShellError.unsupportedSchema("exportFlattenedLayer requires pxr flattening; not implemented")
+        let metaStagePtr = UsdStage.Open(std.string(sessionLayerURL.url.path), UsdStage.InitialLoadSet.LoadNone)
+        guard metaStagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(sessionLayerURL, diagnostic: nil)
+        }
+        let metaStage = USDOverlay.Dereference(metaStagePtr)
+        let sessionLayer = USDOverlay.Dereference(metaStage.GetRootLayer())
+        let sessionDir = sessionLayerURL.url.deletingLastPathComponent()
+
+        // Resolve sublayer asset paths relative to the session directory.
+        let subLayerPaths = sessionLayer.GetSubLayerPaths()
+        var resolvedPaths: [std.string] = []
+        for i in 0..<subLayerPaths.size() {
+            let raw = String(subLayerPaths[i])
+            let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+            let resolved: URL
+            if trimmed.hasPrefix("/") {
+                resolved = URL(fileURLWithPath: trimmed)
+            } else {
+                resolved = sessionDir.appendingPathComponent(trimmed)
+            }
+            guard FileManager.default.fileExists(atPath: resolved.path) else {
+                throw SwiftUsdShellError.fileNotFound(USDStageURL(resolved))
+            }
+            resolvedPaths.push_back(std.string(resolved.path))
+        }
+
+        // Build in-memory export stage with metadata inherited from the
+        // session layer, then flatten all composition arcs.
+        let stagePtr = UsdStage.CreateInMemory(std.string("ExportStage"), UsdStage.InitialLoadSet.LoadAll)
+        let stage = USDOverlay.Dereference(stagePtr)
+        let root = USDOverlay.Dereference(stage.GetRootLayer())
+
+        stage.SetTimeCodesPerSecond(metaStage.GetTimeCodesPerSecond())
+        stage.SetFramesPerSecond(metaStage.GetFramesPerSecond())
+
+        var mpuVal = VtValue()
+        if metaStage.GetMetadata(TfToken("metersPerUnit"), &mpuVal) {
+            stage.SetMetadata(TfToken("metersPerUnit"), mpuVal)
+        }
+        var upAxisVal = VtValue()
+        if metaStage.GetMetadata(TfToken("upAxis"), &upAxisVal) {
+            stage.SetMetadata(TfToken("upAxis"), upAxisVal)
+        }
+        if sessionLayer.HasDefaultPrim() {
+            root.SetDefaultPrim(sessionLayer.GetDefaultPrim())
+        }
+        _ = root.SetSubLayerPaths(resolvedPaths)
+
+        let flattenedLayerPtr = stage.Flatten(true)
+        guard flattenedLayerPtr._isNonnull() else {
+            throw SwiftUsdShellError.invalidValue("Flatten failed for \(sessionLayerURL.url.lastPathComponent)")
+        }
+        let flattened = USDOverlay.Dereference(flattenedLayerPtr)
+
+        if isUsdz {
+            let tempDir = FileManager.default.temporaryDirectory
+            let tempUsda = tempDir.appendingPathComponent(UUID().uuidString + ".usda")
+            guard flattened.Export(std.string(tempUsda.path), std.string(), SdfLayer.FileFormatArguments()) else {
+                throw SwiftUsdShellError.invalidValue("Export failed for \(tempUsda.lastPathComponent)")
+            }
+            // USDZ packaging requires UsdUtils.CreateNewUsdzPackage which is
+            // not yet exposed through the Shell adapter. Defer to the
+            // platform-specific backend.
+            throw SwiftUsdShellError.unsupportedSchema("USDZ packaging requires platform backend; export flattened USDC/USDA instead")
+        } else {
+            guard flattened.Export(std.string(outputURL.url.path), std.string(), SdfLayer.FileFormatArguments()) else {
+                throw SwiftUsdShellError.invalidValue("Export failed for \(outputURL.url.lastPathComponent)")
+            }
+        }
     }
 
     nonisolated public func createVerbatimUSDZPackage(
