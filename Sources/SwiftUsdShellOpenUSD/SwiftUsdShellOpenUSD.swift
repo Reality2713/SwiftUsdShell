@@ -221,6 +221,21 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             }
             return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
+        case .removeSchema(let stageURL, let primPath, let schemaName):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let schema = schemaName.rawValue
+            if schema == "MaterialBindingAPI" {
+                let bindingAPI = UsdShadeMaterialBindingAPI(prim)
+                bindingAPI.UnbindAllBindings()
+            } else if schema == "SkelBindingAPI" {
+                _ = prim.RemoveAPI(TfToken("SkelBindingAPI"), TfToken(""))
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
         case .setGeomSubsetFamilyName(let stageURL, let primPath, let familyName):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
             let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
