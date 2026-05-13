@@ -260,12 +260,13 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             guard prim.IsValid() else {
                 throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
             }
-            let attr = prim.GetAttribute(TfToken("familyType"))
+            let attrName = "subsetFamily:\(familyName.rawValue):familyType"
+            let attr = prim.GetAttribute(TfToken(attrName))
             if attr.IsValid() {
                 attr.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
             } else {
                 let created = prim.CreateAttribute(
-                    TfToken("familyType"), SdfValueTypeName.Token, false,
+                    TfToken(attrName), SdfValueTypeName.Token, false,
                     SdfVariability.SdfVariabilityUniform
                 )
                 created.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
