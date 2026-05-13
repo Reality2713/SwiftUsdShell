@@ -16,6 +16,9 @@ typealias UsdGeomImageable = pxr.UsdGeomImageable
 typealias UsdGeomMesh = pxr.UsdGeomMesh
 typealias UsdGeomXformCommonAPI = pxr.UsdGeomXformCommonAPI
 typealias UsdShadeConnectableAPI = pxr.UsdShadeConnectableAPI
+typealias SdfReference = pxr.SdfReference
+typealias SdfLayerOffset = pxr.SdfLayerOffset
+typealias VtDictionary = pxr.VtDictionary
 typealias UsdShadeInput = pxr.UsdShadeInput
 typealias UsdShadeMaterial = pxr.UsdShadeMaterial
 typealias UsdShadeMaterialBindingAPI = pxr.UsdShadeMaterialBindingAPI
@@ -659,6 +662,143 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         #else
         return []
         #endif
+    }
+
+    // MARK: - Reference operations
+
+    private func openAndGetPrim(stage: USDStageURL, primPath: USDPath) throws -> UsdPrim {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
+            SdfPath(std.string(primPath.rawValue))
+        )
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+        return prim
+    }
+
+    nonisolated public func primReferences(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> [USDReference] {
+        let prim = try openAndGetPrim(stage: stage, primPath: primPath)
+        guard prim.HasAuthoredReferences() else { return [] }
+        var refsValue = VtValue()
+        guard prim.GetMetadata(TfToken("references"), &refsValue) else { return [] }
+        return parseReferencesFromMetadata(String(describing: refsValue))
+    }
+
+    nonisolated public func addReference(
+        stage: USDStageURL, primPath: USDPath, reference: USDReference
+    ) throws {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let deref = USDOverlay.Dereference(stagePtr)
+        let prim = deref.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+
+        let ok = USDOverlay.withUsdEditContext(deref, deref.GetEditTarget()) {
+            var refs = prim.GetReferences()
+            let sdfPath = if let pp = reference.primPath, !pp.isEmpty {
+                SdfPath(std.string(pp))
+            } else { SdfPath() }
+            let sdfRef = SdfReference(
+                std.string(reference.assetPath),
+                sdfPath,
+                SdfLayerOffset(0.0, 1.0),
+                VtDictionary()
+            )
+            return refs.AddReference(sdfRef, pxr.UsdListPosition.UsdListPositionBackOfPrependList)
+        }
+        guard ok else {
+            throw SwiftUsdShellError.referenceEditFailed(
+                operation: "add", stageURL: stage, primPath: primPath,
+                assetPath: reference.assetPath, targetPrimPath: reference.primPath
+            )
+        }
+        deref.GetRootLayer().Save(false)
+    }
+
+    nonisolated public func removeReference(
+        stage: USDStageURL, primPath: USDPath, reference: USDReference
+    ) throws {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let deref = USDOverlay.Dereference(stagePtr)
+        let prim = deref.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
+        }
+
+        let existing = (try? primReferences(stage: stage, primPath: primPath)) ?? []
+        let ok = USDOverlay.withUsdEditContext(deref, deref.GetEditTarget()) {
+            var refs = prim.GetReferences()
+            _ = refs.ClearReferences()
+            for item in existing {
+                guard item.assetPath != reference.assetPath
+                    || (item.primPath ?? "") != (reference.primPath ?? "") else { continue }
+                let sdfPath = if let pp = item.primPath, !pp.isEmpty {
+                    SdfPath(std.string(pp))
+                } else { SdfPath() }
+                let sdfRef = SdfReference(
+                    std.string(item.assetPath),
+                    sdfPath,
+                    SdfLayerOffset(0.0, 1.0),
+                    VtDictionary()
+                )
+                _ = refs.AddReference(sdfRef, pxr.UsdListPosition.UsdListPositionBackOfPrependList)
+            }
+            return true
+        }
+        guard ok else {
+            throw SwiftUsdShellError.referenceEditFailed(
+                operation: "remove", stageURL: stage, primPath: primPath,
+                assetPath: reference.assetPath, targetPrimPath: reference.primPath
+            )
+        }
+        deref.GetRootLayer().Save(false)
+    }
+
+    /// Parse the raw string representation of a references metadata VtValue
+    /// into typed `USDReference` values.
+    private func parseReferencesFromMetadata(_ raw: String) -> [USDReference] {
+        var items: [USDReference] = []
+        var index = raw.startIndex
+        while let atStart = raw[index...].firstIndex(of: "@") {
+            let assetStart = raw.index(after: atStart)
+            guard let atEnd = raw[assetStart...].firstIndex(of: "@") else { break }
+            let assetPath = String(raw[assetStart..<atEnd])
+            var next = raw.index(after: atEnd)
+            while next < raw.endIndex, raw[next].isWhitespace {
+                next = raw.index(after: next)
+            }
+            var primPath: String?
+            if next < raw.endIndex, raw[next] == "<" {
+                let primStart = raw.index(after: next)
+                if let primEnd = raw[primStart...].firstIndex(of: ">") {
+                    let parsed = String(raw[primStart..<primEnd])
+                    primPath = parsed.isEmpty ? nil : parsed
+                    next = raw.index(after: primEnd)
+                }
+            }
+            if !assetPath.isEmpty {
+                items.append(.init(assetPath: assetPath, primPath: primPath))
+            }
+            index = next
+        }
+        var seen = Set<String>()
+        return items.filter { ref in
+            let key = "\(ref.assetPath)|\(ref.primPath ?? "")"
+            return seen.insert(key).inserted
+        }
     }
 }
 

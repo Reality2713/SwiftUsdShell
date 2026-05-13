@@ -1398,6 +1398,20 @@ public protocol USDStageRuntime: Sendable {
 
         func validateStage(stageURL: USDStageURL, keywords: [String]) throws -> [USDValidationIssue]
 
+    /// Composition arcs referencing external assets on a prim.
+    func primReferences(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> [USDReference]
+
+    /// Add a composition arc reference to a prim.
+    func addReference(
+        stage: USDStageURL, primPath: USDPath, reference: USDReference
+    ) throws
+
+    /// Remove a composition arc reference from a prim.
+    func removeReference(
+        stage: USDStageURL, primPath: USDPath, reference: USDReference
+    ) throws
 
     }
 
@@ -1429,12 +1443,24 @@ public struct USDStageInspectionEvent: Sendable {
     }
 }
 
+/// A composition arc reference to an external USD asset.
+public struct USDReference: Equatable, Hashable, Sendable, Codable {
+    public var assetPath: String
+    public var primPath: String?
+
+    public init(assetPath: String, primPath: String? = nil) {
+        self.assetPath = assetPath
+        self.primPath = primPath
+    }
+}
+
 public enum SwiftUsdShellError: Error, Equatable, Sendable, Codable {
     case fileNotFound(USDStageURL)
     case stageOpenFailed(USDStageURL, diagnostic: String?)
     case missingStage(USDStageHandle)
     case missingPrim(USDPrimHandle)
     case primNotFound(stageURL: USDStageURL, primPath: USDPath)
+    case referenceEditFailed(operation: String, stageURL: USDStageURL, primPath: USDPath, assetPath: String, targetPrimPath: String?)
     case invalidPath(String)
     case unsupportedSchema(String)
     case invalidValue(String)
