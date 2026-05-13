@@ -171,6 +171,92 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 )
             )
 
+        case .setDoubleSided(let stageURL, let primPath, let value):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let attr = prim.GetAttribute(TfToken("doubleSided"))
+            if attr.IsValid() {
+                attr.Set(VtValue(value), UsdTimeCode.Default())
+            } else {
+                let created = prim.CreateAttribute(
+                    TfToken("doubleSided"), SdfValueTypeName.Bool, false,
+                    SdfVariability.SdfVariabilityUniform
+                )
+                created.Set(VtValue(value), UsdTimeCode.Default())
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
+        case .setSubdivisionScheme(let stageURL, let primPath, let scheme):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let attr = prim.GetAttribute(TfToken("subdivisionScheme"))
+            if attr.IsValid() {
+                attr.Set(VtValue(TfToken(std.string(scheme.rawValue))), UsdTimeCode.Default())
+            } else {
+                let created = prim.CreateAttribute(
+                    TfToken("subdivisionScheme"), SdfValueTypeName.Token, false,
+                    SdfVariability.SdfVariabilityUniform
+                )
+                created.Set(VtValue(TfToken(std.string(scheme.rawValue))), UsdTimeCode.Default())
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
+        case .applySchema(let stageURL, let primPath, let schemaName):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let schema = schemaName.rawValue
+            if schema == "MaterialBindingAPI" {
+                _ = UsdShadeMaterialBindingAPI.Apply(prim)
+            } else if schema == "SkelBindingAPI" {
+                _ = pxr.UsdSkelBindingAPI.Apply(prim)
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
+        case .setGeomSubsetFamilyName(let stageURL, let primPath, let familyName):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let attr = prim.GetAttribute(TfToken("familyName"))
+            if attr.IsValid() {
+                attr.Set(VtValue(TfToken(std.string(familyName.rawValue))), UsdTimeCode.Default())
+            } else {
+                let created = prim.CreateAttribute(
+                    TfToken("familyName"), SdfValueTypeName.Token, false,
+                    SdfVariability.SdfVariabilityUniform
+                )
+                created.Set(VtValue(TfToken(std.string(familyName.rawValue))), UsdTimeCode.Default())
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
+        case .setGeomSubsetFamilyType(let stageURL, let primPath, let familyName, let familyType):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let attr = prim.GetAttribute(TfToken("familyType"))
+            if attr.IsValid() {
+                attr.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
+            } else {
+                let created = prim.CreateAttribute(
+                    TfToken("familyType"), SdfValueTypeName.Token, false,
+                    SdfVariability.SdfVariabilityUniform
+                )
+                created.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
         case .save(let stageURL):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
             stage.Save()
