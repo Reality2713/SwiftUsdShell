@@ -1182,6 +1182,48 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             throw SwiftUsdShellError.invalidValue("Export failed for \(outputURL.url.lastPathComponent)")
         }
     }
+
+    // MARK: - Texture extraction
+
+    nonisolated public func extractPackagedTextures(
+        packageURL: USDStageURL,
+        outputDirectory: URL,
+        refresh: Bool
+    ) throws -> Int {
+        let fileManager = FileManager.default
+        if refresh, fileManager.fileExists(atPath: outputDirectory.path) {
+            try fileManager.removeItem(at: outputDirectory)
+        }
+        guard packageURL.url.pathExtension.lowercased() == "usdz" else {
+            return 0
+        }
+
+        let zipFile = SdfZipFile.Open(std.string(packageURL.url.path))
+        guard Bool(zipFile) else {
+            throw SwiftUsdShellError.invalidValue("Failed to open USDZ: \(packageURL.url.lastPathComponent)")
+        }
+
+        let imageExtensions = Set(["jpg", "jpeg", "png", "exr", "hdr", "tif", "tiff", "bmp"])
+        var writtenCount = 0
+
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        for entry in zipFile {
+            let filename = String(entry.pointee)
+            let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
+            guard imageExtensions.contains(ext) else { continue }
+
+            let fileInfo = entry.GetFileInfo()
+            guard fileInfo.compressionMethod == 0, let dataPtr = entry.GetFile() else { continue }
+
+            let data = Data(bytes: dataPtr, count: Int(fileInfo.size))
+            let outputURL = outputDirectory.appendingPathComponent(filename).standardizedFileURL
+            try fileManager.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: outputURL, options: .atomic)
+            writtenCount += 1
+        }
+        return writtenCount
+    }
 }
 
 private func fileModificationDate(_ url: URL) -> Date? {

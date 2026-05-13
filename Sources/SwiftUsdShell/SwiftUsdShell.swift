@@ -1405,6 +1405,14 @@ public protocol USDStageRuntime: Sendable {
         assetsDirectoryURL: USDStageURL?
     ) throws
 
+    /// Extract texture files from a USDZ package into a directory.
+    /// Returns the number of textures written.
+    func extractPackagedTextures(
+        packageURL: USDStageURL,
+        outputDirectory: URL,
+        refresh: Bool
+    ) throws -> Int
+
     /// All material prims discovered in a stage.
     func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary]
 
