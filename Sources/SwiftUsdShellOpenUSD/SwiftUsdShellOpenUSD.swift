@@ -257,6 +257,44 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             }
             return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
+        case .bindMaterial(let stageURL, let primPath, let materialPath, let strength):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let matPrim = stage.GetPrimAtPath(SdfPath(std.string(materialPath.rawValue)))
+            guard matPrim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: materialPath)
+            }
+            let bindingAPI = UsdShadeMaterialBindingAPI.Apply(prim)
+            let mat = UsdShadeMaterial(matPrim)
+            let strengthToken = TfToken(std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue))
+            bindingAPI.Bind(mat, strengthToken, TfToken(""))
+            return USDEditResult(
+                refreshHints: USDEditRefreshHints(
+                    refreshSceneGraph: true,
+                    refreshInspector: true,
+                    changedPrimPaths: [primPath]
+                )
+            )
+
+        case .setMaterialBindingStrength(let stageURL, let primPath, let strength):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let bindingAPI = UsdShadeMaterialBindingAPI(prim)
+            let strengthToken = TfToken(std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue))
+            bindingAPI.SetMaterialBindingStrength(strengthToken)
+            return USDEditResult(
+                refreshHints: USDEditRefreshHints(
+                    refreshInspector: true,
+                    changedPrimPaths: [primPath]
+                )
+            )
+
         case .save(let stageURL):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
             stage.Save()

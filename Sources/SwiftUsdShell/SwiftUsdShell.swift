@@ -1235,6 +1235,8 @@ public enum USDEditRequest: Hashable, Sendable, Codable {
     case applySchema(stageURL: USDStageURL, primPath: USDPath, schemaName: USDToken)
     case setGeomSubsetFamilyName(stageURL: USDStageURL, primPath: USDPath, familyName: USDToken)
     case setGeomSubsetFamilyType(stageURL: USDStageURL, primPath: USDPath, familyName: USDToken, familyType: USDToken)
+    case bindMaterial(stageURL: USDStageURL, primPath: USDPath, materialPath: USDPath, strength: USDMaterialBindingStrength)
+    case setMaterialBindingStrength(stageURL: USDStageURL, primPath: USDPath, strength: USDMaterialBindingStrength)
     case save(stageURL: USDStageURL)
 }
 
