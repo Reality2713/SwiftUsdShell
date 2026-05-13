@@ -1409,6 +1409,13 @@ public protocol USDStageRuntime: Sendable {
         assetsDirectoryURL: USDStageURL?
     ) throws
 
+    /// Paths of all prim children of the pseudo-root.
+    func rootPrimPaths(stage: USDStageURL) throws -> [USDPath]
+
+    /// Returns asset paths that could not be resolved on disk
+    /// by walking all composition arcs in the stage.
+    func unresolvedDependencies(stage: USDStageURL) throws -> [String]
+
     /// Extract texture files from a USDZ package into a directory.
     /// Returns the number of textures written.
     func extractPackagedTextures(

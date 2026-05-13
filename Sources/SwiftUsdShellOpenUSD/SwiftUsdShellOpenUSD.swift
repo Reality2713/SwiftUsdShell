@@ -1240,6 +1240,49 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         }
         return writtenCount
     }
+    nonisolated public func rootPrimPaths(stage: USDStageURL) throws -> [USDPath] {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadNone)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let pseudoRoot = USDOverlay.Dereference(stagePtr).GetPseudoRoot()
+        var paths: [USDPath] = []
+        for child in pseudoRoot.GetChildren() {
+            guard child.IsValid() else { continue }
+            let pathStr = String(child.GetPath().GetAsString())
+            guard !pathStr.isEmpty else { continue }
+            paths.append(USDPath(pathStr))
+        }
+        return paths
+    }
+
+    nonisolated public func unresolvedDependencies(stage: USDStageURL) throws -> [String] {
+        let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
+        }
+        let pxrStage = USDOverlay.Dereference(stagePtr)
+        let fileManager = FileManager.default
+        var unresolved: [String] = []
+        var seen = Set<String>()
+        let dir = stage.url.deletingLastPathComponent()
+        for prim in pxrStage.Traverse() {
+            guard prim.IsValid(), prim.HasAuthoredReferences() else { continue }
+            var refsValue = VtValue()
+            guard prim.GetMetadata(TfToken("references"), &refsValue) else { continue }
+            let raw = String(describing: refsValue)
+            for ref in parseReferencesFromMetadata(raw) {
+                let key = ref.assetPath
+                guard seen.insert(key).inserted else { continue }
+                let resolved = dir.appendingPathComponent(ref.assetPath)
+                if !fileManager.fileExists(atPath: resolved.path) {
+                    unresolved.append(ref.assetPath)
+                }
+            }
+        }
+        return unresolved
+    }
+
 }
 
 /// Sanitize a USDZ archive member path: reject traversal (`..`)
