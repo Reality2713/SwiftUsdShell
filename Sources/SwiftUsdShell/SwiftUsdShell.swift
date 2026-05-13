@@ -844,6 +844,8 @@ public struct USDModelInfo: Hashable, Sendable, Codable {
     public var maxJointInfluences: Int
     public var hasSkinnedMesh: Bool
     public var blendShapes: [USDBlendShapeInfo]
+    /// The authored default prim path, or empty string when none is set.
+    public var defaultPrim: String
 
     public init(
         boundsExtent: SIMD3<Float> = .zero,
@@ -860,7 +862,8 @@ public struct USDModelInfo: Hashable, Sendable, Codable {
         skeletonJointCount: Int = 0,
         maxJointInfluences: Int = 0,
         hasSkinnedMesh: Bool = false,
-        blendShapes: [USDBlendShapeInfo] = []
+        blendShapes: [USDBlendShapeInfo] = [],
+        defaultPrim: String = ""
     ) {
         self.boundsExtent = boundsExtent
         self.boundsCenter = boundsCenter
@@ -877,6 +880,7 @@ public struct USDModelInfo: Hashable, Sendable, Codable {
         self.maxJointInfluences = maxJointInfluences
         self.hasSkinnedMesh = hasSkinnedMesh
         self.blendShapes = blendShapes
+        self.defaultPrim = defaultPrim
     }
 }
 

@@ -486,6 +486,16 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
         let extent: SIMD3<Float> = bounds.map { $0.max - $0.min } ?? .zero
 
+        let defaultPrim: String = {
+            let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
+            if rootLayer.HasDefaultPrim() {
+                let dp = rootLayer.GetDefaultPrim()
+                let dpStr = String(dp.GetAsString())
+                return dpStr.isEmpty ? "" : dpStr
+            }
+            return ""
+        }()
+
         return USDModelInfo(
             boundsExtent: extent,
             boundsCenter: bounds?.center ?? .zero,
@@ -501,7 +511,8 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             skeletonJointCount: 0,
             maxJointInfluences: 0,
             hasSkinnedMesh: stats.meshCount > 0,
-            blendShapes: []
+            blendShapes: [],
+            defaultPrim: defaultPrim
         )
     }
 
