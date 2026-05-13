@@ -295,6 +295,26 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 )
             )
 
+        case .setVariantSelection(let stageURL, let primPath, let setName, let selectionId):
+            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let setToken = TfToken(std.string(setName.rawValue))
+            let selectionToken = selectionId.map { TfToken(std.string($0.rawValue)) } ?? TfToken("")
+            let ok = prim.SetVariant(setToken, selectionToken)
+            guard ok else {
+                throw SwiftUsdShellError.invalidValue("Failed to set variant \(setName.rawValue) = \(selectionId?.rawValue ?? "nil") on \(primPath.rawValue)")
+            }
+            return USDEditResult(
+                refreshHints: USDEditRefreshHints(
+                    refreshSceneGraph: true,
+                    refreshInspector: true,
+                    changedPrimPaths: [primPath]
+                )
+            )
+
         case .save(let stageURL):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
             stage.Save()
