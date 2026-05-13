@@ -963,6 +963,62 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             return seen.insert(key).inserted
         }
     }
+
+    // MARK: - Session layer / packaging
+
+    nonisolated public func writeSessionLayer(
+        to outputURL: USDStageURL,
+        stageMetadata: [String: String],
+        subLayers: [String],
+        docComment: String,
+        footerComment: String?
+    ) throws {
+        var lines: [String] = []
+        lines.append("#usda 1.0")
+        lines.append("(")
+        if !docComment.isEmpty {
+            lines.append("    doc = \"\"\"\(docComment)\"\"\"")
+        }
+        for (key, value) in stageMetadata.sorted(by: { $0.key < $1.key }) {
+            if let doubleValue = Double(value) {
+                lines.append("    \(key) = \(doubleValue)")
+            } else {
+                lines.append("    \(key) = \"\(value)\"")
+            }
+        }
+        if let footer = footerComment, !footer.isEmpty {
+            lines.append("    // \(footer)")
+        }
+        lines.append(")")
+        if !subLayers.isEmpty {
+            lines.append("(")
+            lines.append("    subLayers = [")
+            for subLayer in subLayers {
+                lines.append("        @\(subLayer)@,")
+            }
+            lines.append("    ]")
+            lines.append(")")
+        }
+        lines.append("")
+        let content = lines.joined(separator: "\n")
+        try content.write(to: outputURL.url, atomically: true, encoding: .utf8)
+    }
+
+    nonisolated public func exportFlattenedLayer(
+        sessionLayerURL: USDStageURL,
+        outputURL: USDStageURL,
+        isUsdz: Bool
+    ) throws {
+        throw SwiftUsdShellError.unsupportedSchema("exportFlattenedLayer requires pxr flattening; not implemented")
+    }
+
+    nonisolated public func createVerbatimUSDZPackage(
+        currentDirectory: USDStageURL,
+        inputs: [String],
+        outputURL: USDStageURL
+    ) throws {
+        throw SwiftUsdShellError.unsupportedSchema("createVerbatimUSDZPackage requires USDZ packaging; not implemented")
+    }
 }
 
 private func fileModificationDate(_ url: URL) -> Date? {

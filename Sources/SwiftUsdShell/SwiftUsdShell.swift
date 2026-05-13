@@ -1371,6 +1371,29 @@ public protocol USDStageRuntime: Sendable {
         output: USDStageURL
     ) throws -> USDStageURL
 
+    /// Write a USD composition layer referencing sublayers with metadata.
+    func writeSessionLayer(
+        to outputURL: USDStageURL,
+        stageMetadata: [String: String],
+        subLayers: [String],
+        docComment: String,
+        footerComment: String?
+    ) throws
+
+    /// Export a self-contained flattened stage from a session layer.
+    func exportFlattenedLayer(
+        sessionLayerURL: USDStageURL,
+        outputURL: USDStageURL,
+        isUsdz: Bool
+    ) throws
+
+    /// Create a verbatim USDZ package from input asset paths.
+    func createVerbatimUSDZPackage(
+        currentDirectory: USDStageURL,
+        inputs: [String],
+        outputURL: USDStageURL
+    ) throws
+
     /// All material prims discovered in a stage.
     func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary]
 
