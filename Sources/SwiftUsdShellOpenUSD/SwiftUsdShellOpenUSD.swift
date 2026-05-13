@@ -19,6 +19,7 @@ typealias UsdShadeConnectableAPI = pxr.UsdShadeConnectableAPI
 typealias SdfReference = pxr.SdfReference
 typealias SdfLayerOffset = pxr.SdfLayerOffset
 typealias VtDictionary = pxr.VtDictionary
+typealias SdfChangeBlock = pxr.SdfChangeBlock
 typealias UsdShadeInput = pxr.UsdShadeInput
 typealias UsdShadeMaterial = pxr.UsdShadeMaterial
 typealias UsdShadeMaterialBindingAPI = pxr.UsdShadeMaterialBindingAPI
@@ -968,6 +969,15 @@ private func fileModificationDate(_ url: URL) -> Date? {
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
 }
 
+/// Groups authored `Sdf` edits so notices and invalidations are emitted
+/// coherently after the block completes.
+@inline(__always)
+private func withSdfChangeBlock<T>(_ body: () throws -> T) rethrows -> T {
+    let block = SdfChangeBlock()
+    defer { _ = block }
+    return try body()
+}
+
 private extension OpenUSDStageRuntime {
     func stage(for stageURL: USDStageURL, loadPolicy: USDLoadPolicy) throws -> UsdStage {
         let modificationTime = stageModificationTime(stageURL.url)
@@ -1614,22 +1624,42 @@ private extension OpenUSDStageRuntime {
         on prim: UsdPrim,
         options: USDTransformEditOptions
     ) throws {
-        guard options.authoringStyle != .commonTRSOrient else {
-            throw SwiftUsdShellError.unsupportedSchema("commonTRSOrient requires an orient xform-op adapter path")
-        }
-
         let xform = UsdGeomXformCommonAPI(prim)
-        let ok = xform.SetXformVectors(
+        var ok = xform.SetTranslate(
             GfVec3d(transform.position.x, transform.position.y, transform.position.z),
-            GfVec3f(Float(transform.rotationDegrees.x), Float(transform.rotationDegrees.y), Float(transform.rotationDegrees.z)),
-            GfVec3f(Float(transform.scale.x), Float(transform.scale.y), Float(transform.scale.z)),
-            GfVec3f(0, 0, 0),
-            .RotationOrderXYZ,
             openUSDTimeCode(options.timeCode)
         )
         guard ok else {
-            throw SwiftUsdShellError.invalidValue("Unable to author common transform")
+            throw SwiftUsdShellError.invalidValue("Unable to author translate on prim")
         }
+        // Rotate may fail on orient-authored prims (XformCommonAPI rejects
+        // SetRotate when the prim uses xformOp:orient). Keep translate/scale
+        // edits working instead of failing the whole transform write.
+        _ = xform.SetRotate(
+            GfVec3f(Float(transform.rotationDegrees.x), Float(transform.rotationDegrees.y), Float(transform.rotationDegrees.z)),
+            .RotationOrderXYZ,
+            openUSDTimeCode(options.timeCode)
+        )
+        ok = xform.SetScale(
+            GfVec3f(Float(transform.scale.x), Float(transform.scale.y), Float(transform.scale.z)),
+            openUSDTimeCode(options.timeCode)
+        )
+        guard ok else {
+            throw SwiftUsdShellError.invalidValue("Unable to author scale on prim")
+        }
+        // Persist Euler hint in radians so subsequent reads can present
+        // a stable rotation display without recomputing from quaternion.
+        let degToRad = Float.pi / 180.0
+        let eulerHintRadians = GfVec3f(
+            Float(transform.rotationDegrees.x) * degToRad,
+            Float(transform.rotationDegrees.y) * degToRad,
+            Float(transform.rotationDegrees.z) * degToRad
+        )
+        _ = prim.SetMetadataByDictKey(
+            TfToken("customData"),
+            TfToken("rotationEulerHint"),
+            VtValue(eulerHintRadians)
+        )
     }
 
     nonisolated func materialBindingInfo(
