@@ -1147,6 +1147,41 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             throw SwiftUsdShellError.invalidValue("Failed to add \(archivePath) to USDZ archive")
         }
     }
+
+    // MARK: - Import / arbitrary-source flatten
+
+    nonisolated public func flattenAndExport(
+        sourceURL: USDStageURL,
+        outputURL: USDStageURL,
+        assetsDirectoryURL: USDStageURL?
+    ) throws {
+        let stagePath: std.string
+        if let assetsDir = assetsDirectoryURL {
+            stagePath = std.string("\(sourceURL.url.path):SDF_FORMAT_ARGS:assetsPath=\(assetsDir.url.path)")
+        } else {
+            stagePath = std.string(sourceURL.url.path)
+        }
+
+        var stagePtr = UsdStage.Open(stagePath, UsdStage.InitialLoadSet.LoadAll)
+        if stagePtr._isNonnull() == false, assetsDirectoryURL != nil {
+            // Fallback: try opening without the assetsPath argument.
+            stagePtr = UsdStage.Open(std.string(sourceURL.url.path), UsdStage.InitialLoadSet.LoadAll)
+        }
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(sourceURL, diagnostic: "Unable to open source for flatten/export")
+        }
+        let stage = USDOverlay.Dereference(stagePtr)
+
+        let flattenedLayerPtr = stage.Flatten(true)
+        guard flattenedLayerPtr._isNonnull() else {
+            throw SwiftUsdShellError.invalidValue("Flatten failed for \(sourceURL.url.lastPathComponent)")
+        }
+        let flattened = USDOverlay.Dereference(flattenedLayerPtr)
+
+        guard flattened.Export(std.string(outputURL.url.path), std.string(), SdfLayer.FileFormatArguments()) else {
+            throw SwiftUsdShellError.invalidValue("Export failed for \(outputURL.url.lastPathComponent)")
+        }
+    }
 }
 
 private func fileModificationDate(_ url: URL) -> Date? {

@@ -1394,6 +1394,17 @@ public protocol USDStageRuntime: Sendable {
         outputURL: USDStageURL
     ) throws
 
+    /// Open an arbitrary source stage, flatten all composition arcs,
+    /// and export to the output URL. For plugin-backed formats the
+    /// implementation passes `SDF_FORMAT_ARGS:assetsPath` to the
+    /// stage-open call so that external resources (e.g. textures) are
+    /// resolved relative to the assets directory.
+    func flattenAndExport(
+        sourceURL: USDStageURL,
+        outputURL: USDStageURL,
+        assetsDirectoryURL: USDStageURL?
+    ) throws
+
     /// All material prims discovered in a stage.
     func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary]
 
