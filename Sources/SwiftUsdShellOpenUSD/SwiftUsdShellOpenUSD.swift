@@ -1213,17 +1213,39 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
             guard imageExtensions.contains(ext) else { continue }
 
+            // Reject entries with path traversal to keep output within outputDirectory.
+            guard let relativePath = normalizedPackagedTexturePath(filename) else { continue }
+
             let fileInfo = entry.GetFileInfo()
             guard fileInfo.compressionMethod == 0, let dataPtr = entry.GetFile() else { continue }
 
             let data = Data(bytes: dataPtr, count: Int(fileInfo.size))
-            let outputURL = outputDirectory.appendingPathComponent(filename).standardizedFileURL
+            let outputURL = outputDirectory.appendingPathComponent(relativePath).standardizedFileURL
+            // Verify the resolved URL is still within the output directory.
+            guard outputURL.path.hasPrefix(outputDirectory.path + "/") || outputURL.path == outputDirectory.path else { continue }
             try fileManager.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: outputURL, options: .atomic)
             writtenCount += 1
         }
         return writtenCount
     }
+}
+
+/// Sanitize a USDZ archive member path: reject traversal (`..`)
+/// and strip leading slashes / current-directory components.
+private func normalizedPackagedTexturePath(_ archiveMemberPath: String) -> String? {
+    let rawComponents = archiveMemberPath
+        .replacingOccurrences(of: "\\", with: "/")
+        .split(separator: "/")
+    var sanitized: [String] = []
+    for component in rawComponents {
+        let value = String(component)
+        if value.isEmpty || value == "." { continue }
+        guard value != ".." else { return nil }
+        sanitized.append(value)
+    }
+    guard !sanitized.isEmpty else { return nil }
+    return sanitized.joined(separator: "/")
 }
 
 private func fileModificationDate(_ url: URL) -> Date? {
