@@ -1,6 +1,7 @@
 import CxxStdlib
 import Foundation
 import OpenUSD
+import simd
 import SwiftUsdShell
 
 typealias USDOverlay = OpenUSD.Overlay
@@ -29,7 +30,6 @@ typealias TfToken = pxr.TfToken
 typealias SdfPath = pxr.SdfPath
 typealias SdfAssetPath = pxr.SdfAssetPath
 typealias SdfPathVector = pxr.SdfPathVector
-typealias SdfLayerOffset = pxr.SdfLayerOffset
 typealias SdfSpecifier = pxr.SdfSpecifier
 typealias SdfValueTypeName = pxr.SdfValueTypeName
 typealias GfVec3d = pxr.GfVec3d
