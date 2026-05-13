@@ -596,21 +596,183 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             SdfPath(std.string(primPath.rawValue))
         )
         guard prim.IsValid() else { return nil }
-        let xform = UsdGeomXformCommonAPI(prim)
-        var translation = GfVec3d(0, 0, 0)
-        var rotation = GfVec3f(0, 0, 0)
-        var scale = GfVec3f(1, 1, 1)
-        var pivot = GfVec3f(0, 0, 0)
-        var rotationOrder = UsdGeomXformCommonAPI.RotationOrder.RotationOrderXYZ
-        guard xform.GetXformVectors(
-            &translation, &rotation, &scale, &pivot, &rotationOrder,
-            UsdTimeCode.Default()
-        ) else { return nil }
-        return USDTransformData(
-            position: SIMD3<Double>(translation[0], translation[1], translation[2]),
-            rotationDegrees: SIMD3<Double>(Double(rotation[0]), Double(rotation[1]), Double(rotation[2])),
-            scale: SIMD3<Double>(Double(scale[0]), Double(scale[1]), Double(scale[2]))
-        )
+
+        // Try robust per-op reading first (handles orient-authored and
+        // split-Euler prims that XformCommonAPI can't decompose).
+        var position = authoredVector3Op(prim: prim, prefix: "xformOp:translate")
+        var rotationDegrees = resolveRotationDegrees(prim: prim)
+        var scale = authoredVector3Op(prim: prim, prefix: "xformOp:scale")
+
+        // Fall back to XformCommonAPI for any component we could not resolve.
+        if position == nil || rotationDegrees == nil || scale == nil {
+            let xform = UsdGeomXformCommonAPI(prim)
+            var t = GfVec3d(0, 0, 0)
+            var r = GfVec3f(0, 0, 0)
+            var s = GfVec3f(1, 1, 1)
+            var p = GfVec3f(0, 0, 0)
+            var ro = UsdGeomXformCommonAPI.RotationOrder.RotationOrderXYZ
+            if xform.GetXformVectors(&t, &r, &s, &p, &ro, UsdTimeCode.Default()) {
+                if position == nil {
+                    position = SIMD3<Double>(t[0], t[1], t[2])
+                }
+                if rotationDegrees == nil {
+                    rotationDegrees = SIMD3<Double>(Double(r[0]), Double(r[1]), Double(r[2]))
+                }
+                if scale == nil {
+                    scale = SIMD3<Double>(Double(s[0]), Double(s[1]), Double(s[2]))
+                }
+            }
+        }
+
+        guard let pos = position, let rot = rotationDegrees, let scl = scale else {
+            return nil
+        }
+        return USDTransformData(position: pos, rotationDegrees: rot, scale: scl)
+    }
+
+    // MARK: - Transform helpers
+
+    private func resolveRotationDegrees(prim: UsdPrim) -> SIMD3<Double>? {
+        // Prefer authored Euler hint metadata for stable inspector display.
+        if let hint = rotationEulerHintDegrees(prim: prim) {
+            return hint
+        }
+        if let rotateXYZ = authoredVector3Op(prim: prim, prefix: "xformOp:rotateXYZ") {
+            return rotateXYZ
+        }
+        if let split = authoredSplitEulerDegrees(prim: prim) {
+            return split
+        }
+        if let orient = authoredQuaternionOp(prim: prim, prefix: "xformOp:orient") {
+            return quaternionToEulerDegrees(orient)
+        }
+        return nil
+    }
+
+    private func authoredVector3Op(prim: UsdPrim, prefix: String) -> SIMD3<Double>? {
+        let exact = prim.GetAttribute(TfToken(prefix))
+        if exact.IsValid() {
+            var value = VtValue()
+            if getAttributeValue(exact, &value), let triple = parseVector3(from: String(describing: value)) {
+                return triple
+            }
+        }
+        for attr in prim.GetAttributes() {
+            let name = String(attr.GetName())
+            guard name.hasPrefix(prefix) else { continue }
+            var value = VtValue()
+            if getAttributeValue(attr, &value), let triple = parseVector3(from: String(describing: value)) {
+                return triple
+            }
+        }
+        return nil
+    }
+
+    private func authoredQuaternionOp(prim: UsdPrim, prefix: String) -> simd_quatd? {
+        let exact = prim.GetAttribute(TfToken(prefix))
+        if exact.IsValid() {
+            var value = VtValue()
+            if getAttributeValue(exact, &value), let quat = parseQuaternion(from: String(describing: value)) {
+                return quat
+            }
+        }
+        for attr in prim.GetAttributes() {
+            let name = String(attr.GetName())
+            guard name.hasPrefix(prefix) else { continue }
+            var value = VtValue()
+            if getAttributeValue(attr, &value), let quat = parseQuaternion(from: String(describing: value)) {
+                return quat
+            }
+        }
+        return nil
+    }
+
+    private func authoredSplitEulerDegrees(prim: UsdPrim) -> SIMD3<Double>? {
+        let rx = prim.GetAttribute(TfToken("xformOp:rotateX"))
+        let ry = prim.GetAttribute(TfToken("xformOp:rotateY"))
+        let rz = prim.GetAttribute(TfToken("xformOp:rotateZ"))
+        guard rx.IsValid() || ry.IsValid() || rz.IsValid() else { return nil }
+        var x = 0.0
+        var y = 0.0
+        var z = 0.0
+        if rx.IsValid() {
+            var value = VtValue()
+            if getAttributeValue(rx, &value), let scalar = parseScalar(from: String(describing: value)) {
+                x = scalar
+            }
+        }
+        if ry.IsValid() {
+            var value = VtValue()
+            if getAttributeValue(ry, &value), let scalar = parseScalar(from: String(describing: value)) {
+                y = scalar
+            }
+        }
+        if rz.IsValid() {
+            var value = VtValue()
+            if getAttributeValue(rz, &value), let scalar = parseScalar(from: String(describing: value)) {
+                z = scalar
+            }
+        }
+        return SIMD3<Double>(x, y, z)
+    }
+
+    private func rotationEulerHintDegrees(prim: UsdPrim) -> SIMD3<Double>? {
+        var customData = VtValue()
+        guard prim.GetMetadata(TfToken("customData"), &customData) else { return nil }
+        let raw = String(describing: customData)
+        guard raw.contains("rotationEulerHint") else { return nil }
+        let pattern = #"rotationEulerHint\s*=\s*\(([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?),\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?),\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: raw, options: [], range: NSRange(raw.startIndex..<raw.endIndex, in: raw))
+        else { return nil }
+        func group(_ index: Int) -> Double? {
+            guard let r = Range(match.range(at: index), in: raw) else { return nil }
+            return Double(String(raw[r]))
+        }
+        guard let rx = group(1), let ry = group(2), let rz = group(3) else { return nil }
+        let radToDeg = 180.0 / Double.pi
+        return SIMD3<Double>(rx * radToDeg, ry * radToDeg, rz * radToDeg)
+    }
+
+    private func parseVector3(from value: String) -> SIMD3<Double>? {
+        let pattern = #"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        let matches = regex.matches(in: value, options: [], range: range)
+        guard matches.count >= 3 else { return nil }
+        func number(_ idx: Int) -> Double? {
+            guard let r = Range(matches[idx].range, in: value) else { return nil }
+            return Double(String(value[r]))
+        }
+        guard let a = number(0), let b = number(1), let c = number(2) else { return nil }
+        return SIMD3<Double>(a, b, c)
+    }
+
+    private func parseScalar(from value: String) -> Double? {
+        let pattern = #"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: value, options: [], range: NSRange(value.startIndex..<value.endIndex, in: value)),
+              let r = Range(match.range, in: value)
+        else { return nil }
+        return Double(String(value[r]))
+    }
+
+    private func parseQuaternion(from value: String) -> simd_quatd? {
+        let pattern = #"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        let matches = regex.matches(in: value, options: [], range: range)
+        var numbers: [Double] = []
+        numbers.reserveCapacity(4)
+        for match in matches {
+            guard let r = Range(match.range, in: value), let number = Double(String(value[r])) else {
+                continue
+            }
+            numbers.append(number)
+            if numbers.count == 4 { break }
+        }
+        guard numbers.count == 4 else { return nil }
+        return simd_quatd(ix: numbers[1], iy: numbers[2], iz: numbers[3], r: numbers[0])
     }
 
     nonisolated public func primMaterialBinding(

@@ -1443,6 +1443,34 @@ public struct USDStageInspectionEvent: Sendable {
     }
 }
 
+/// Convert a quaternion to XYZ intrinsic Euler angles in degrees.
+/// USD `xformOp:orient` uses real-first quaternion storage.
+public func quaternionToEulerDegrees(_ q: simd_quatd) -> SIMD3<Double> {
+    let x = q.imag.x
+    let y = q.imag.y
+    let z = q.imag.z
+    let w = q.real
+
+    let sinr = 2.0 * (w * x + y * z)
+    let cosr = 1.0 - 2.0 * (x * x + y * y)
+    let roll = atan2(sinr, cosr)
+
+    let sinp = 2.0 * (w * y - z * x)
+    let pitch: Double
+    if Swift.abs(sinp) >= 1.0 {
+        pitch = sinp >= 0 ? (Double.pi / 2.0) : (-Double.pi / 2.0)
+    } else {
+        pitch = asin(sinp)
+    }
+
+    let siny = 2.0 * (w * z + x * y)
+    let cosy = 1.0 - 2.0 * (y * y + z * z)
+    let yaw = atan2(siny, cosy)
+
+    let radToDeg = 180.0 / Double.pi
+    return SIMD3<Double>(roll * radToDeg, pitch * radToDeg, yaw * radToDeg)
+}
+
 /// A composition arc reference to an external USD asset.
 public struct USDReference: Equatable, Hashable, Sendable, Codable {
     public var assetPath: String
