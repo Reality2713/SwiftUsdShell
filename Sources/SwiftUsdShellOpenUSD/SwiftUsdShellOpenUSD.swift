@@ -1085,7 +1085,67 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         inputs: [String],
         outputURL: USDStageURL
     ) throws {
-        throw SwiftUsdShellError.unsupportedSchema("createVerbatimUSDZPackage requires USDZ packaging; not implemented")
+        let fileManager = FileManager.default
+        var writer = SdfZipFileWriter.CreateNew(std.string(outputURL.url.path))
+
+        for input in inputs {
+            let sourceURL = currentDirectory.url.appendingPathComponent(input)
+            try addPathToUSDZPackage(
+                sourceURL: sourceURL,
+                archivePath: input,
+                outputURL: outputURL,
+                writer: &writer,
+                fileManager: fileManager
+            )
+        }
+
+        guard writer.Save() else {
+            throw SwiftUsdShellError.invalidValue("Failed to write USDZ archive at \(outputURL.url.lastPathComponent)")
+        }
+    }
+
+    private func addPathToUSDZPackage(
+        sourceURL: URL,
+        archivePath: String,
+        outputURL: USDStageURL,
+        writer: inout SdfZipFileWriter,
+        fileManager: FileManager
+    ) throws {
+        let values = try sourceURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+
+        if values.isDirectory == true {
+            let childURLs = try fileManager.contentsOfDirectory(
+                at: sourceURL,
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+                options: []
+            ).sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+            for childURL in childURLs {
+                let childArchivePath = archivePath + "/" + childURL.lastPathComponent
+                try addPathToUSDZPackage(
+                    sourceURL: childURL,
+                    archivePath: childArchivePath,
+                    outputURL: outputURL,
+                    writer: &writer,
+                    fileManager: fileManager
+                )
+            }
+            return
+        }
+
+        guard values.isRegularFile == true else {
+            throw SwiftUsdShellError.invalidValue("Unsupported package item at \(sourceURL.lastPathComponent)")
+        }
+
+        let archivedPath = String(
+            writer.AddFile(
+                std.string(sourceURL.path),
+                std.string(archivePath)
+            )
+        )
+        guard !archivedPath.isEmpty else {
+            throw SwiftUsdShellError.invalidValue("Failed to add \(archivePath) to USDZ archive")
+        }
     }
 }
 
