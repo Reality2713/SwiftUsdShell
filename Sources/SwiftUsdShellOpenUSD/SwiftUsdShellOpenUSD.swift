@@ -19,6 +19,8 @@ typealias UsdGeomXformCommonAPI = pxr.UsdGeomXformCommonAPI
 typealias UsdShadeConnectableAPI = pxr.UsdShadeConnectableAPI
 typealias SdfReference = pxr.SdfReference
 typealias SdfLayerOffset = pxr.SdfLayerOffset
+typealias SdfLayer = pxr.SdfLayer
+typealias SdfVariability = pxr.SdfVariability
 typealias VtDictionary = pxr.VtDictionary
 typealias SdfChangeBlock = pxr.SdfChangeBlock
 typealias UsdShadeInput = pxr.UsdShadeInput
@@ -58,9 +60,7 @@ private let nonXformableTypeNames: Set<String> = [
 ///
 /// This target may import SwiftUsd/OpenUSD. The base SwiftUsdShell target must
 /// remain independent from this adapter.
-public actor OpenUSDStageRuntime: USDStageRuntime {
-    private var stages: [USDStageURL: UsdStage] = [:]
-    private var stageModificationTimes: [USDStageURL: TimeInterval] = [:]
+public final class OpenUSDStageRuntime: Sendable {
 
     public init() {}
 
@@ -303,7 +303,11 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             }
             let bindingAPI = UsdShadeMaterialBindingAPI(prim)
             let strengthToken = TfToken(std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue))
-            bindingAPI.SetMaterialBindingStrength(strengthToken)
+            var bindingRel = bindingAPI.GetDirectBindingRel()
+            guard bindingRel.IsValid() else {
+                throw SwiftUsdShellError.invalidValue("Missing material binding relationship on \(primPath.rawValue)")
+            }
+            _ = UsdShadeMaterialBindingAPI.SetMaterialBindingStrength(bindingRel, strengthToken)
             return USDEditResult(
                 refreshHints: USDEditRefreshHints(
                     refreshInspector: true,
@@ -317,9 +321,18 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             guard prim.IsValid() else {
                 throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
             }
-            let setToken = TfToken(std.string(setName.rawValue))
-            let selectionToken = selectionId.map { TfToken(std.string($0.rawValue)) } ?? TfToken("")
-            let ok = prim.SetVariant(setToken, selectionToken)
+            var variantSets = prim.GetVariantSets()
+            var variantSet = variantSets.GetVariantSet(std.string(setName.rawValue))
+            guard variantSet.IsValid() else {
+                throw SwiftUsdShellError.invalidValue("Failed to access variant set \(setName.rawValue) on \(primPath.rawValue)")
+            }
+            let ok: Bool
+            if let selectionId {
+                ok = variantSet.SetVariantSelection(std.string(selectionId.rawValue))
+            } else {
+                variantSet.ClearVariantSelection()
+                ok = true
+            }
             guard ok else {
                 throw SwiftUsdShellError.invalidValue("Failed to set variant \(setName.rawValue) = \(selectionId?.rawValue ?? "nil") on \(primPath.rawValue)")
             }
@@ -338,7 +351,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         }
     }
 
-    nonisolated public func probeCapabilities() -> USDRuntimeCapabilities {
+    public func probeCapabilities() -> USDRuntimeCapabilities {
         #if canImport(SwiftUsd_PXR_ENABLE_IMAGING_SUPPORT)
         let hasImaging = true
         #else
@@ -437,7 +450,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         )
     }
 
-    nonisolated private func probeAppleTextureConverter() -> Bool {
+    private func probeAppleTextureConverter() -> Bool {
         #if os(macOS)
         let fm = FileManager.default
         var candidates: [URL] = []
@@ -466,13 +479,13 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         #endif
     }
 
-    nonisolated public func registerPlugin(at url: USDStageURL) -> Bool {
+    public func registerPlugin(at url: USDStageURL) -> Bool {
         let pluginPath = std.string(url.url.path)
         let plugins = pxr.PlugRegistry.GetInstance().RegisterPlugins(pluginPath)
         return !plugins.empty()
     }
 
-    nonisolated public func remapSkeletonPaths(
+    public func remapSkeletonPaths(
         stage: USDStageURL,
         skeletonPath: USDPath,
         animationPath: USDPath,
@@ -539,7 +552,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return output
     }
 
-    nonisolated public func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL {
+    public func makeRCPReady(stage: USDStageURL, primPath: USDPath) throws -> USDStageURL {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
@@ -576,7 +589,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 
 
-    nonisolated public func observeStageChanges(
+    public func observeStageChanges(
         stage: USDStageURL
     ) -> AsyncStream<USDStageInspectionEvent> {
         AsyncStream { continuation in
@@ -608,7 +621,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         }
     }
 
-    nonisolated public func sceneStatistics(stage: USDStageURL) throws -> USDGeometryStatistics {
+    public func sceneStatistics(stage: USDStageURL) throws -> USDGeometryStatistics {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
@@ -616,7 +629,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return geometryStatistics(USDOverlay.Dereference(stagePtr).GetPseudoRoot())
     }
 
-    nonisolated public func primStatistics(
+    public func primStatistics(
         stage: USDStageURL, primPath: USDPath
     ) throws -> USDGeometryStatistics? {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
@@ -632,7 +645,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return geometryStatistics(prim)
     }
 
-    nonisolated public func modelInfo(stage: USDStageURL) throws -> USDModelInfo {
+    public func modelInfo(stage: USDStageURL) throws -> USDModelInfo {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
@@ -650,7 +663,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
             if rootLayer.HasDefaultPrim() {
                 let dp = rootLayer.GetDefaultPrim()
-                let dpStr = String(dp.GetAsString())
+                let dpStr = stableOwnedString(describing: dp.GetString())
                 return dpStr.isEmpty ? "" : dpStr
             }
             return ""
@@ -676,7 +689,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         )
     }
 
-    nonisolated public func variantDescriptors(
+    public func variantDescriptors(
         stage: USDStageURL, primPath: USDPath
     ) throws -> [USDVariantSetSummary] {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
@@ -690,7 +703,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return variantSets(prim)
     }
 
-    nonisolated public func exportVariantCombination(
+    public func exportVariantCombination(
         stage: USDStageURL,
         selections: [String: USDToken],
         output: USDStageURL
@@ -718,7 +731,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return output
     }
 
-    nonisolated public func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary] {
+    public func materialSummaries(stage: USDStageURL) throws -> [USDMaterialSummary] {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
@@ -729,19 +742,19 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 
 
-    nonisolated public func primHierarchy(stage: USDStageURL) throws -> USDPrimTree? {
+    public func primHierarchy(stage: USDStageURL) throws -> USDPrimTree? {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
         }
         let pseudoRoot = USDOverlay.Dereference(stagePtr).GetPseudoRoot()
-        for child in pseudoRoot.GetChildren() {
+        for child in pseudoRoot.GetChildren().swiftSequence {
             return primTree(child)
         }
         return nil
     }
 
-    nonisolated public func primSummary(
+    public func primSummary(
         stage: USDStageURL, primPath: USDPath
     ) throws -> USDPrimSummary {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
@@ -757,7 +770,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return primSummary(prim, includeAttributes: true, includeRelationships: false)
     }
 
-    nonisolated public func primTransformData(
+    public func primTransformData(
         stage: USDStageURL, primPath: USDPath
     ) throws -> USDTransformData? {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
@@ -825,7 +838,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         let exact = prim.GetAttribute(TfToken(prefix))
         if exact.IsValid() {
             var value = VtValue()
-            if getAttributeValue(exact, &value), let triple = parseVector3(from: String(describing: value)) {
+            if exact.Get(&value, UsdTimeCode.Default()), let triple = parseVector3(from: String(describing: value)) {
                 return triple
             }
         }
@@ -833,7 +846,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             let name = String(attr.GetName())
             guard name.hasPrefix(prefix) else { continue }
             var value = VtValue()
-            if getAttributeValue(attr, &value), let triple = parseVector3(from: String(describing: value)) {
+            if attr.Get(&value, UsdTimeCode.Default()), let triple = parseVector3(from: String(describing: value)) {
                 return triple
             }
         }
@@ -844,7 +857,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         let exact = prim.GetAttribute(TfToken(prefix))
         if exact.IsValid() {
             var value = VtValue()
-            if getAttributeValue(exact, &value), let quat = parseQuaternion(from: String(describing: value)) {
+            if exact.Get(&value, UsdTimeCode.Default()), let quat = parseQuaternion(from: String(describing: value)) {
                 return quat
             }
         }
@@ -852,7 +865,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             let name = String(attr.GetName())
             guard name.hasPrefix(prefix) else { continue }
             var value = VtValue()
-            if getAttributeValue(attr, &value), let quat = parseQuaternion(from: String(describing: value)) {
+            if attr.Get(&value, UsdTimeCode.Default()), let quat = parseQuaternion(from: String(describing: value)) {
                 return quat
             }
         }
@@ -869,19 +882,19 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         var z = 0.0
         if rx.IsValid() {
             var value = VtValue()
-            if getAttributeValue(rx, &value), let scalar = parseScalar(from: String(describing: value)) {
+            if rx.Get(&value, UsdTimeCode.Default()), let scalar = parseScalar(from: String(describing: value)) {
                 x = scalar
             }
         }
         if ry.IsValid() {
             var value = VtValue()
-            if getAttributeValue(ry, &value), let scalar = parseScalar(from: String(describing: value)) {
+            if ry.Get(&value, UsdTimeCode.Default()), let scalar = parseScalar(from: String(describing: value)) {
                 y = scalar
             }
         }
         if rz.IsValid() {
             var value = VtValue()
-            if getAttributeValue(rz, &value), let scalar = parseScalar(from: String(describing: value)) {
+            if rz.Get(&value, UsdTimeCode.Default()), let scalar = parseScalar(from: String(describing: value)) {
                 z = scalar
             }
         }
@@ -947,7 +960,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return simd_quatd(ix: numbers[1], iy: numbers[2], iz: numbers[3], r: numbers[0])
     }
 
-    nonisolated public func primMaterialBinding(
+    public func primMaterialBinding(
         stage: USDStageURL, primPath: USDPath
     ) throws -> USDMaterialBindingInfo? {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
@@ -964,11 +977,11 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
 
 
-    nonisolated public func normalizeAssetPath(_ reference: String) -> String {
+    public func normalizeAssetPath(_ reference: String) -> String {
         reference.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
     }
 
-    nonisolated public func validateStage(
+    public func validateStage(
         stageURL: USDStageURL,
         keywords: [String]
     ) throws -> [USDValidationIssue] {
@@ -1014,7 +1027,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return prim
     }
 
-    nonisolated public func primReferences(
+    public func primReferences(
         stage: USDStageURL, primPath: USDPath
     ) throws -> [USDReference] {
         let prim = try openAndGetPrim(stage: stage, primPath: primPath)
@@ -1024,7 +1037,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return parseReferencesFromMetadata(String(describing: refsValue))
     }
 
-    nonisolated public func addReference(
+    public func addReference(
         stage: USDStageURL, primPath: USDPath, reference: USDReference
     ) throws {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
@@ -1056,10 +1069,10 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 assetPath: reference.assetPath, targetPrimPath: reference.primPath
             )
         }
-        deref.GetRootLayer().Save(false)
+        USDOverlay.Dereference(deref.GetRootLayer()).Save(false)
     }
 
-    nonisolated public func removeReference(
+    public func removeReference(
         stage: USDStageURL, primPath: USDPath, reference: USDReference
     ) throws {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
@@ -1098,7 +1111,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 assetPath: reference.assetPath, targetPrimPath: reference.primPath
             )
         }
-        deref.GetRootLayer().Save(false)
+        USDOverlay.Dereference(deref.GetRootLayer()).Save(false)
     }
 
     /// Parse the raw string representation of a references metadata VtValue
@@ -1137,7 +1150,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
     // MARK: - Session layer / packaging
 
-    nonisolated public func writeSessionLayer(
+    public func writeSessionLayer(
         to outputURL: USDStageURL,
         stageMetadata: [String: String],
         subLayers: [String],
@@ -1157,77 +1170,32 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
                 lines.append("    \(key) = \"\(value)\"")
             }
         }
-        if let footer = footerComment, !footer.isEmpty {
-            lines.append("    // \(footer)")
-        }
-        lines.append(")")
         if !subLayers.isEmpty {
-            lines.append("(")
             lines.append("    subLayers = [")
             for subLayer in subLayers {
                 lines.append("        @\(subLayer)@,")
             }
             lines.append("    ]")
-            lines.append(")")
         }
+        if let footer = footerComment, !footer.isEmpty {
+            lines.append("    // \(footer)")
+        }
+        lines.append(")")
         lines.append("")
         let content = lines.joined(separator: "\n")
         try content.write(to: outputURL.url, atomically: true, encoding: .utf8)
     }
 
-    nonisolated public func exportFlattenedLayer(
+    public func exportFlattenedLayer(
         sessionLayerURL: USDStageURL,
         outputURL: USDStageURL,
         isUsdz: Bool
     ) throws {
-        let metaStagePtr = UsdStage.Open(std.string(sessionLayerURL.url.path), UsdStage.InitialLoadSet.LoadNone)
-        guard metaStagePtr._isNonnull() else {
+        let stagePtr = UsdStage.Open(std.string(sessionLayerURL.url.path), UsdStage.InitialLoadSet.LoadAll)
+        guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(sessionLayerURL, diagnostic: nil)
         }
-        let metaStage = USDOverlay.Dereference(metaStagePtr)
-        let sessionLayer = USDOverlay.Dereference(metaStage.GetRootLayer())
-        let sessionDir = sessionLayerURL.url.deletingLastPathComponent()
-
-        // Resolve sublayer asset paths relative to the session directory.
-        let subLayerPaths = sessionLayer.GetSubLayerPaths()
-        var resolvedPaths: [std.string] = []
-        for i in 0..<subLayerPaths.size() {
-            let raw = String(subLayerPaths[i])
-            let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-            let resolved: URL
-            if trimmed.hasPrefix("/") {
-                resolved = URL(fileURLWithPath: trimmed)
-            } else {
-                resolved = sessionDir.appendingPathComponent(trimmed)
-            }
-            guard FileManager.default.fileExists(atPath: resolved.path) else {
-                throw SwiftUsdShellError.fileNotFound(USDStageURL(resolved))
-            }
-            resolvedPaths.push_back(std.string(resolved.path))
-        }
-
-        // Build in-memory export stage with metadata inherited from the
-        // session layer, then flatten all composition arcs.
-        let stagePtr = UsdStage.CreateInMemory(std.string("ExportStage"), UsdStage.InitialLoadSet.LoadAll)
         let stage = USDOverlay.Dereference(stagePtr)
-        let root = USDOverlay.Dereference(stage.GetRootLayer())
-
-        stage.SetTimeCodesPerSecond(metaStage.GetTimeCodesPerSecond())
-        stage.SetFramesPerSecond(metaStage.GetFramesPerSecond())
-
-        var mpuVal = VtValue()
-        if metaStage.GetMetadata(TfToken("metersPerUnit"), &mpuVal) {
-            stage.SetMetadata(TfToken("metersPerUnit"), mpuVal)
-        }
-        var upAxisVal = VtValue()
-        if metaStage.GetMetadata(TfToken("upAxis"), &upAxisVal) {
-            stage.SetMetadata(TfToken("upAxis"), upAxisVal)
-        }
-        if sessionLayer.HasDefaultPrim() {
-            root.SetDefaultPrim(sessionLayer.GetDefaultPrim())
-        }
-        _ = root.SetSubLayerPaths(resolvedPaths)
-
         let flattenedLayerPtr = stage.Flatten(true)
         guard flattenedLayerPtr._isNonnull() else {
             throw SwiftUsdShellError.invalidValue("Flatten failed for \(sessionLayerURL.url.lastPathComponent)")
@@ -1251,7 +1219,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         }
     }
 
-    nonisolated public func createVerbatimUSDZPackage(
+    public func createVerbatimUSDZPackage(
         currentDirectory: USDStageURL,
         inputs: [String],
         outputURL: USDStageURL
@@ -1321,7 +1289,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
     // MARK: - Import / arbitrary-source flatten
 
-    nonisolated public func flattenAndExport(
+    public func flattenAndExport(
         sourceURL: USDStageURL,
         outputURL: USDStageURL,
         assetsDirectoryURL: USDStageURL?
@@ -1356,7 +1324,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
     // MARK: - Texture extraction
 
-    nonisolated public func extractPackagedTextures(
+    public func extractPackagedTextures(
         packageURL: USDStageURL,
         outputDirectory: URL,
         refresh: Bool
@@ -1379,7 +1347,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
 
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        for entry in zipFile {
+        for entry in zipFile.swiftSequence {
             let filename = String(entry.pointee)
             let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
             guard imageExtensions.contains(ext) else { continue }
@@ -1395,19 +1363,19 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
             // Verify the resolved URL is still within the output directory.
             guard outputURL.path.hasPrefix(outputDirectory.path + "/") || outputURL.path == outputDirectory.path else { continue }
             try fileManager.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: outputURL, options: .atomic)
+            try data.write(to: outputURL, options: Data.WritingOptions.atomic)
             writtenCount += 1
         }
         return writtenCount
     }
-    nonisolated public func rootPrimPaths(stage: USDStageURL) throws -> [USDPath] {
+    public func rootPrimPaths(stage: USDStageURL) throws -> [USDPath] {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadNone)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
         }
         let pseudoRoot = USDOverlay.Dereference(stagePtr).GetPseudoRoot()
         var paths: [USDPath] = []
-        for child in pseudoRoot.GetChildren() {
+        for child in pseudoRoot.GetChildren().swiftSequence {
             guard child.IsValid() else { continue }
             let pathStr = String(child.GetPath().GetAsString())
             guard !pathStr.isEmpty else { continue }
@@ -1416,7 +1384,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         return paths
     }
 
-    nonisolated public func unresolvedDependencies(stage: USDStageURL) throws -> [String] {
+    public func unresolvedDependencies(stage: USDStageURL) throws -> [String] {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
@@ -1426,7 +1394,7 @@ public actor OpenUSDStageRuntime: USDStageRuntime {
         var unresolved: [String] = []
         var seen = Set<String>()
         let dir = stage.url.deletingLastPathComponent()
-        for prim in pxrStage.Traverse() {
+        for prim in pxrStage.Traverse().swiftSequence {
             guard prim.IsValid(), prim.HasAuthoredReferences() else { continue }
             var refsValue = VtValue()
             guard prim.GetMetadata(TfToken("references"), &refsValue) else { continue }
@@ -1477,29 +1445,14 @@ private func withSdfChangeBlock<T>(_ body: () throws -> T) rethrows -> T {
 
 private extension OpenUSDStageRuntime {
     func stage(for stageURL: USDStageURL, loadPolicy: USDLoadPolicy) throws -> UsdStage {
-        let modificationTime = stageModificationTime(stageURL.url)
-
-        if let cached = stages[stageURL],
-           stageModificationTimes[stageURL] == modificationTime {
-            return cached
-        }
-
         let stageRef = UsdStage.Open(std.string(stageURL.url.path), openUSDLoadPolicy(loadPolicy))
         guard stageRef._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stageURL, diagnostic: nil)
         }
-        let stage = USDOverlay.Dereference(stageRef)
-        stages[stageURL] = stage
-        stageModificationTimes[stageURL] = modificationTime
-        return stage
+        return USDOverlay.Dereference(stageRef)
     }
 
-    func stageModificationTime(_ url: URL) -> TimeInterval {
-        let date = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
-        return date?.timeIntervalSinceReferenceDate ?? 0
-    }
-
-    nonisolated func stageMetadata(_ stage: UsdStage) -> USDStageMetadata {
+    func stageMetadata(_ stage: UsdStage) -> USDStageMetadata {
         let defaultPrim = stage.GetDefaultPrim()
         let animationTracks = stageAnimationTracks(stage)
         let availableCameras = stageCameras(stage)
@@ -1523,11 +1476,11 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func stageTimeSampleRange(_ stage: UsdStage) -> (start: Double, end: Double)? {
+    func stageTimeSampleRange(_ stage: UsdStage) -> (start: Double, end: Double)? {
         var start: Double?
         var end: Double?
 
-        for prim in stage.Traverse() {
+        for prim in stage.Traverse().swiftSequence {
             for attribute in prim.GetAttributes() {
                 guard attribute.GetNumTimeSamples() > 0 else { continue }
 
@@ -1541,7 +1494,7 @@ private extension OpenUSDStageRuntime {
         return (start, end)
     }
 
-    nonisolated func attributeTimeSampleRange(_ attribute: UsdAttribute) -> (start: Double, end: Double)? {
+    func attributeTimeSampleRange(_ attribute: UsdAttribute) -> (start: Double, end: Double)? {
         var lower = 0.0
         var upper = 0.0
         var hasTimeSamples = false
@@ -1568,9 +1521,9 @@ private extension OpenUSDStageRuntime {
         return (firstSample, lastSample)
     }
 
-    nonisolated func stageAnimationTracks(_ stage: UsdStage) -> [USDPath] {
+    func stageAnimationTracks(_ stage: UsdStage) -> [USDPath] {
         var tracks: [USDPath] = []
-        for prim in stage.Traverse() {
+        for prim in stage.Traverse().swiftSequence {
             let typeName = stableOwnedString(describing: prim.GetTypeName().GetString()).lowercased()
             guard typeName == "skelanimation"
                 || typeName == "animation"
@@ -1581,16 +1534,16 @@ private extension OpenUSDStageRuntime {
         return tracks
     }
 
-    nonisolated func stageCameras(_ stage: UsdStage) -> [USDPath] {
+    func stageCameras(_ stage: UsdStage) -> [USDPath] {
         var cameras: [USDPath] = []
-        for prim in stage.Traverse() {
+        for prim in stage.Traverse().swiftSequence {
             guard stableOwnedString(describing: prim.GetTypeName().GetString()) == "Camera" else { continue }
             cameras.append(USDPath(stableOwnedString(describing: prim.GetPath().GetAsString())))
         }
         return cameras
     }
 
-    nonisolated func primTree(_ prim: UsdPrim) -> USDPrimTree {
+    func primTree(_ prim: UsdPrim) -> USDPrimTree {
         USDPrimTree(
             path: USDPath(stableOwnedString(describing: prim.GetPath().GetAsString())),
             name: USDToken(stableOwnedString(describing: prim.GetName().GetString())),
@@ -1599,11 +1552,11 @@ private extension OpenUSDStageRuntime {
             isActive: prim.IsActive(),
             isInstanceable: prim.IsInstanceable(),
             purpose: purpose(prim),
-            children: prim.GetChildren().map { primTree($0) }
+            children: prim.GetChildren().swiftSequence.map { primTree($0) }
         )
     }
 
-    nonisolated func geometryStatistics(_ root: UsdPrim) -> USDGeometryStatistics {
+    func geometryStatistics(_ root: UsdPrim) -> USDGeometryStatistics {
         var totalTriangles = 0
         var totalVertices = 0
         var meshCount = 0
@@ -1630,7 +1583,7 @@ private extension OpenUSDStageRuntime {
                 break
             }
 
-            for child in prim.GetChildren() {
+            for child in prim.GetChildren().swiftSequence {
                 visit(child)
             }
         }
@@ -1646,7 +1599,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func sceneBounds(_ stage: UsdStage) -> USDSceneBounds? {
+    func sceneBounds(_ stage: UsdStage) -> USDSceneBounds? {
         let defaultPrim = stage.GetDefaultPrim()
         if defaultPrim.IsValid(), let bounds = sceneBounds(defaultPrim, timeCode: .default) {
             return bounds
@@ -1654,7 +1607,7 @@ private extension OpenUSDStageRuntime {
         return combinedChildBounds(stage.GetPseudoRoot(), timeCode: .default)
     }
 
-    nonisolated func sceneBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
+    func sceneBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
         let imageable = UsdGeomImageable(prim)
         if USDOverlay.GetPrim(imageable).IsValid(),
            let bounds = sceneBounds(imageable, timeCode: timeCode) {
@@ -1663,7 +1616,7 @@ private extension OpenUSDStageRuntime {
         return combinedChildBounds(prim, timeCode: timeCode)
     }
 
-    nonisolated func sceneBounds(_ imageable: UsdGeomImageable, timeCode: USDTimeCode) -> USDSceneBounds? {
+    func sceneBounds(_ imageable: UsdGeomImageable, timeCode: USDTimeCode) -> USDSceneBounds? {
         let box = imageable.ComputeWorldBound(
             openUSDTimeCode(timeCode),
             TfToken(std.string("default")),
@@ -1683,9 +1636,9 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func combinedChildBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
+    func combinedChildBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
         var combined: USDSceneBounds?
-        for child in prim.GetChildren() {
+        for child in prim.GetChildren().swiftSequence {
             guard let childBounds = sceneBounds(child, timeCode: timeCode) else {
                 continue
             }
@@ -1694,7 +1647,7 @@ private extension OpenUSDStageRuntime {
         return combined
     }
 
-    nonisolated func sceneBounds(min: SIMD3<Float>, max: SIMD3<Float>) -> USDSceneBounds {
+    func sceneBounds(min: SIMD3<Float>, max: SIMD3<Float>) -> USDSceneBounds {
         let center = (min + max) / 2
         let extent = max - min
         return USDSceneBounds(
@@ -1705,7 +1658,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func union(_ lhs: USDSceneBounds, _ rhs: USDSceneBounds) -> USDSceneBounds {
+    func union(_ lhs: USDSceneBounds, _ rhs: USDSceneBounds) -> USDSceneBounds {
         sceneBounds(
             min: SIMD3<Float>(
                 Swift.min(lhs.min.x, rhs.min.x),
@@ -1720,7 +1673,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func meshGeometryCounts(_ prim: UsdPrim) -> (triangles: Int, vertices: Int) {
+    func meshGeometryCounts(_ prim: UsdPrim) -> (triangles: Int, vertices: Int) {
         let mesh = UsdGeomMesh(prim)
         guard USDOverlay.GetPrim(mesh).IsValid() else {
             return (0, 0)
@@ -1748,7 +1701,7 @@ private extension OpenUSDStageRuntime {
         return (triangleCount, vertexCount)
     }
 
-    nonisolated func shaderIdentifier(_ prim: UsdPrim) -> String? {
+    func shaderIdentifier(_ prim: UsdPrim) -> String? {
         let idAttr = prim.GetAttribute(TfToken(std.string("info:id")))
         guard idAttr.IsValid() else { return nil }
 
@@ -1761,7 +1714,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    nonisolated func primSummary(
+    func primSummary(
         _ prim: UsdPrim,
         includeAttributes: Bool,
         includeRelationships: Bool
@@ -1783,7 +1736,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func attributes(_ prim: UsdPrim) -> [USDAttributeSummary] {
+    func attributes(_ prim: UsdPrim) -> [USDAttributeSummary] {
         prim.GetAttributes().map { attribute in
             USDAttributeSummary(
                 name: USDToken(stableOwnedString(describing: attribute.GetName().GetString())),
@@ -1795,7 +1748,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    nonisolated func relationships(_ prim: UsdPrim) -> [USDRelationshipSummary] {
+    func relationships(_ prim: UsdPrim) -> [USDRelationshipSummary] {
         prim.GetRelationships().map { relationship in
             var targets = SdfPathVector()
             _ = relationship.GetTargets(&targets)
@@ -1806,7 +1759,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    nonisolated func compositionArcs(_ prim: UsdPrim) -> [USDCompositionArcSummary] {
+    func compositionArcs(_ prim: UsdPrim) -> [USDCompositionArcSummary] {
         var arcs: [USDCompositionArcSummary] = []
         for spec in prim.GetPrimStack() {
             let primSpec = spec.pointee
@@ -1820,7 +1773,7 @@ private extension OpenUSDStageRuntime {
         return arcs
     }
 
-    nonisolated func variantSets(_ prim: UsdPrim) -> [USDVariantSetSummary] {
+    func variantSets(_ prim: UsdPrim) -> [USDVariantSetSummary] {
         let sets = prim.GetVariantSets()
         return sets.GetNames().map { name in
             let nameString = stableOwnedString(describing: name)
@@ -1838,7 +1791,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    nonisolated func transformInspection(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDTransformInspection? {
+    func transformInspection(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDTransformInspection? {
         let xform = UsdGeomXformCommonAPI(prim)
         var translation = GfVec3d(0, 0, 0)
         var rotation = GfVec3f(0, 0, 0)
@@ -1873,7 +1826,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func authoredTransformInspection(
+    func authoredTransformInspection(
         _ prim: UsdPrim,
         localTransform: USDTransformData
     ) -> USDTransformInspection {
@@ -1997,7 +1950,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func collectAuthoredOps(for prim: UsdPrim) -> [USDAuthoredXformOp] {
+    func collectAuthoredOps(for prim: UsdPrim) -> [USDAuthoredXformOp] {
         let order = xformOpOrder(prim)
         var seen = Set<String>()
         var ops: [USDAuthoredXformOp] = []
@@ -2028,7 +1981,7 @@ private extension OpenUSDStageRuntime {
         return ops
     }
 
-    nonisolated func xformOpOrder(_ prim: UsdPrim) -> [String] {
+    func xformOpOrder(_ prim: UsdPrim) -> [String] {
         let attr = prim.GetAttribute(TfToken(std.string("xformOpOrder")))
         guard attr.IsValid() else { return [] }
 
@@ -2042,7 +1995,7 @@ private extension OpenUSDStageRuntime {
         return order
     }
 
-    nonisolated func authoredOp(
+    func authoredOp(
         for attr: UsdAttribute,
         token: String,
         isInverse: Bool
@@ -2064,7 +2017,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func authoredXformValue(
+    func authoredXformValue(
         for attr: UsdAttribute,
         kind: USDAuthoredXformOpKind
     ) -> USDAuthoredXformOpValue? {
@@ -2078,7 +2031,7 @@ private extension OpenUSDStageRuntime {
         }
     }
 
-    nonisolated func xformVector3Value(_ attr: UsdAttribute) -> SIMD3<Double>? {
+    func xformVector3Value(_ attr: UsdAttribute) -> SIMD3<Double>? {
         let typeName = attr.GetTypeName()
         if typeName == SdfValueTypeName.Double3
             || typeName == SdfValueTypeName.Point3d
@@ -2099,7 +2052,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    nonisolated func xformScalarValue(_ attr: UsdAttribute) -> Double? {
+    func xformScalarValue(_ attr: UsdAttribute) -> Double? {
         let typeName = attr.GetTypeName()
         if typeName == SdfValueTypeName.Double {
             var value = 0.0
@@ -2116,7 +2069,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    nonisolated func setCommonTransform(
+    func setCommonTransform(
         _ transform: USDTransformData,
         on prim: UsdPrim,
         options: USDTransformEditOptions
@@ -2159,7 +2112,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func materialBindingInfo(
+    func materialBindingInfo(
         for prim: UsdPrim,
         selectedPath: USDPath
     ) -> USDMaterialBindingInfo {
@@ -2211,7 +2164,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func materialSummaries(_ root: UsdPrim) -> [USDMaterialSummary] {
+    func materialSummaries(_ root: UsdPrim) -> [USDMaterialSummary] {
         var summaries: [USDMaterialSummary] = []
 
         func visit(_ prim: UsdPrim) {
@@ -2220,7 +2173,7 @@ private extension OpenUSDStageRuntime {
                 summaries.append(summary)
             }
 
-            for child in prim.GetChildren() {
+            for child in prim.GetChildren().swiftSequence {
                 visit(child)
             }
         }
@@ -2229,7 +2182,7 @@ private extension OpenUSDStageRuntime {
         return summaries
     }
 
-    nonisolated func materialSummary(for prim: UsdPrim, stage: UsdStage) -> USDMaterialSummary? {
+    func materialSummary(for prim: UsdPrim, stage: UsdStage) -> USDMaterialSummary? {
         if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Material" {
             return materialSummary(prim)
         }
@@ -2244,7 +2197,7 @@ private extension OpenUSDStageRuntime {
         return materialSummary(materialPrim)
     }
 
-    nonisolated func materialSummary(_ materialPrim: UsdPrim) -> USDMaterialSummary? {
+    func materialSummary(_ materialPrim: UsdPrim) -> USDMaterialSummary? {
         let material = UsdShadeMaterial(materialPrim)
         guard material.GetPrim().IsValid() else {
             return nil
@@ -2260,7 +2213,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func materialSummaryType(_ material: UsdShadeMaterial) -> USDMaterialSummaryType {
+    func materialSummaryType(_ material: UsdShadeMaterial) -> USDMaterialSummaryType {
         let surfaceShader = material.ComputeSurfaceSource(TfToken(), nil, nil)
         guard surfaceShader.GetPrim().IsValid() else {
             return .unknown
@@ -2276,7 +2229,7 @@ private extension OpenUSDStageRuntime {
         return .unknown
     }
 
-    nonisolated func materialProperties(_ material: UsdShadeMaterial) -> [USDMaterialPropertySummary] {
+    func materialProperties(_ material: UsdShadeMaterial) -> [USDMaterialPropertySummary] {
         let surfaceShader = material.ComputeSurfaceSource(TfToken(), nil, nil)
         guard surfaceShader.GetPrim().IsValid() else {
             return []
@@ -2308,7 +2261,7 @@ private extension OpenUSDStageRuntime {
         return properties
     }
 
-    nonisolated func materialProperty(_ input: UsdShadeInput) -> USDMaterialPropertySummary? {
+    func materialProperty(_ input: UsdShadeInput) -> USDMaterialPropertySummary? {
         let attr = input.GetAttr()
         guard attr.IsValid(), attr.GetResolveInfo().ValueIsBlocked() == false else {
             return nil
@@ -2389,7 +2342,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func textureProperty(_ input: UsdShadeInput, depth: Int) -> USDMaterialPropertyInfo? {
+    func textureProperty(_ input: UsdShadeInput, depth: Int) -> USDMaterialPropertyInfo? {
         guard depth < 5 else { return nil }
 
         let attr = input.GetAttr()
@@ -2414,7 +2367,7 @@ private extension OpenUSDStageRuntime {
         return textureValue(attr)
     }
 
-    nonisolated func textureProperty(
+    func textureProperty(
         source: UsdShadeConnectableAPI,
         sourceName: String,
         depth: Int
@@ -2468,7 +2421,7 @@ private extension OpenUSDStageRuntime {
         return textureValue(fileAttr)
     }
 
-    nonisolated func textureValue(_ attr: UsdAttribute) -> USDMaterialPropertyInfo? {
+    func textureValue(_ attr: UsdAttribute) -> USDMaterialPropertyInfo? {
         guard attr.IsValid() else {
             return nil
         }
@@ -2490,7 +2443,7 @@ private extension OpenUSDStageRuntime {
         )
     }
 
-    nonisolated func effectiveMaterialPath(for prim: UsdPrim) -> String? {
+    func effectiveMaterialPath(for prim: UsdPrim) -> String? {
         let bindingAPI = UsdShadeMaterialBindingAPI(prim)
         let material = bindingAPI.ComputeBoundMaterial()
         if material.GetPrim().IsValid() {
@@ -2504,7 +2457,7 @@ private extension OpenUSDStageRuntime {
 
         if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Mesh" {
             var subsetTargets: Set<String> = []
-            for child in prim.GetChildren() {
+            for child in prim.GetChildren().swiftSequence {
                 if stableOwnedString(describing: child.GetTypeName().GetString()) != "GeomSubset" {
                     continue
                 }
@@ -2521,7 +2474,7 @@ private extension OpenUSDStageRuntime {
         return nil
     }
 
-    nonisolated func directBindingDetails(
+    func directBindingDetails(
         for prim: UsdPrim,
         purposeToken: TfToken
     ) -> (targetPath: String?, strength: USDMaterialBindingStrength?) {
@@ -2541,7 +2494,7 @@ private extension OpenUSDStageRuntime {
         return (nil, nil)
     }
 
-    nonisolated func firstBindingTarget(from relationship: UsdRelationship) -> String? {
+    func firstBindingTarget(from relationship: UsdRelationship) -> String? {
         var targets = SdfPathVector()
         _ = relationship.GetTargets(&targets)
         guard !targets.empty() else { return nil }

@@ -540,48 +540,28 @@ func editRuntimeContractsArePureSwiftAndCodable() throws {
 }
 
 @Test
-func shellRuntimeProtocolCanBeImplementedWithoutRuntimeImports() async throws {
-    struct FixtureRuntime: USDStageRuntime {
-        func inspectStage(_ request: USDStageInspectionRequest) async throws -> USDStageInspection {
-            USDStageInspection(
-                stageURL: request.stageURL,
-                metadata: USDStageMetadata(defaultPrimName: "Root"),
-                primTree: USDPrimTree(path: "/Root", name: "Root", typeName: "Xform")
-            )
-        }
-
-        func inspectPrim(_ request: USDPrimInspectionRequest) async throws -> USDPrimInspection {
-            USDPrimInspection(
-                prim: USDPrimSummary(
-                    path: request.primPath,
-                    name: "Cube",
-                    typeName: "Mesh"
-                )
-            )
-        }
-
-        func edit(_ request: USDEditRequest) async throws -> USDEditResult {
-            switch request {
-            case .save:
-                USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
-            default:
-                USDEditResult()
-            }
-        }
-    }
-
-    let runtime = FixtureRuntime()
+func shellContractsCanBeUsedWithoutRuntimeImports() throws {
     let stageURL = USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))
 
-    let stage = try await runtime.inspectStage(USDStageInspectionRequest(stageURL: stageURL))
+    let stage = USDStageInspection(
+        stageURL: stageURL,
+        metadata: USDStageMetadata(defaultPrimName: "Root"),
+        primTree: USDPrimTree(path: "/Root", name: "Root", typeName: "Xform")
+    )
     #expect(stage.metadata.defaultPrimName == "Root")
     #expect(stage.primTree?.path == "/Root")
 
-    let prim = try await runtime.inspectPrim(USDPrimInspectionRequest(stageURL: stageURL, primPath: "/Root/Cube"))
+    let prim = USDPrimInspection(
+        prim: USDPrimSummary(
+            path: "/Root/Cube",
+            name: "Cube",
+            typeName: "Mesh"
+        )
+    )
     #expect(prim.prim.path == "/Root/Cube")
     #expect(prim.prim.typeName == "Mesh")
 
-    let edit = try await runtime.edit(.save(stageURL: stageURL))
+    let edit = USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
     #expect(edit.refreshHints.refreshInspector == false)
 }
 
