@@ -20,7 +20,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/Reality2713/SwiftUsd.git", exact: "6.1.0-preflight.6"),
+        .package(url: "https://github.com/Reality2713/SwiftUsd.git", exact: "6.1.0-preflight.7"),
     ],
     targets: [
         .target(
