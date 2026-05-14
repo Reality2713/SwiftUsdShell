@@ -1161,6 +1161,61 @@ public struct USDSparseLayerRequest: Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Attribute Type Rewrite DTOs
+
+/// A single attribute type rewrite operation.
+///
+/// Changes the declared USD type name of an existing attribute on a prim
+/// while preserving its authored value. If the attribute does not exist,
+/// the operation is a no-op with a warning.
+public struct USDAttributeTypeRewrite: Hashable, Sendable, Codable {
+    /// Prim path that owns the attribute.
+    public var primPath: String
+    /// Full attribute name including namespace prefix (e.g. "inputs:varname").
+    public var attributeName: String
+    /// Target USD type name (e.g. "string", "token", "float").
+    public var targetTypeName: String
+
+    public init(primPath: String, attributeName: String, targetTypeName: String) {
+        self.primPath = primPath
+        self.attributeName = attributeName
+        self.targetTypeName = targetTypeName
+    }
+}
+
+/// A batch request to rewrite attribute types in a USD stage.
+public struct USDAttributeTypeRewriteRequest: Hashable, Sendable, Codable {
+    /// Source stage URL to read and modify.
+    public var stageURL: USDStageURL
+    /// Output URL for the rewritten layer.
+    public var outputURL: USDStageURL
+    /// Attribute rewrites to apply.
+    public var rewrites: [USDAttributeTypeRewrite]
+
+    public init(
+        stageURL: USDStageURL,
+        outputURL: USDStageURL,
+        rewrites: [USDAttributeTypeRewrite]
+    ) {
+        self.stageURL = stageURL
+        self.outputURL = outputURL
+        self.rewrites = rewrites
+    }
+}
+
+/// Result of an attribute type rewrite operation.
+public struct USDAttributeTypeRewriteResult: Hashable, Sendable, Codable {
+    /// Prim paths whose attributes were modified.
+    public var changedPrimPaths: [String]
+    /// Warnings for attributes that could not be rewritten.
+    public var warnings: [String]
+
+    public init(changedPrimPaths: [String] = [], warnings: [String] = []) {
+        self.changedPrimPaths = changedPrimPaths
+        self.warnings = warnings
+    }
+}
+
 /// Query for the first connected source of a shader input.
 public struct USDShaderInputSourceQuery: Hashable, Sendable, Codable {
     /// Stage to inspect.

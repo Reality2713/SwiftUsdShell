@@ -2582,6 +2582,72 @@ private extension OpenUSDStageRuntime {
         )
     }
 
+    /// Rewrites the declared USD type of attributes on prims, preserving
+    /// authored values. Operates on the source stage's root layer and writes
+    /// the modified layer to the output URL.
+    public func rewriteAttributeTypes(
+        _ request: USDAttributeTypeRewriteRequest
+    ) throws -> USDAttributeTypeRewriteResult {
+        let stage = try self.stage(for: request.stageURL, loadPolicy: .loadNone)
+
+        var changedPrimPaths: [String] = []
+        var warnings: [String] = []
+
+        for rewrite in request.rewrites {
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(rewrite.primPath)))
+            guard prim.IsValid() else {
+                warnings.append("Prim not found at '\(rewrite.primPath)'")
+                continue
+            }
+
+            let attr = prim.GetAttribute(TfToken(std.string(rewrite.attributeName)))
+            guard attr.IsValid() else {
+                warnings.append("Attribute '\(rewrite.attributeName)' not found on '\(rewrite.primPath)'")
+                continue
+            }
+
+            // Validate the target type name before modifying the layer.
+            let targetTypeName = SdfValueTypeName.GetByName(TfToken(std.string(rewrite.targetTypeName)))
+            guard targetTypeName.IsValid() else {
+                warnings.append("Unknown type name '\(rewrite.targetTypeName)' for attribute '\(rewrite.attributeName)' on '\(rewrite.primPath)'")
+                continue
+            }
+
+            // Read the authored default value before removing the property.
+            var value = VtValue()
+            let hasValue = attr.Get(&value, UsdTimeCode.Default())
+
+            // Remove old property and create a new one with the target type.
+            let propertyToken = TfToken(std.string(rewrite.attributeName))
+            _ = prim.RemoveProperty(propertyToken)
+
+            let newAttr = prim.CreateAttribute(
+                propertyToken,
+                targetTypeName,
+                false,
+                SdfVariability.SdfVariabilityVarying
+            )
+
+            // Restore the authored value on the newly-typed attribute.
+            if hasValue {
+                newAttr.Set(value, UsdTimeCode.Default())
+            }
+
+            changedPrimPaths.append(rewrite.primPath)
+        }
+
+        // Export the modified root layer to the output URL.
+        let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
+        guard rootLayer.Export(std.string(request.outputURL.url.path), std.string(), SdfLayer.FileFormatArguments()) else {
+            throw SwiftUsdShellError.invalidValue("Failed to export layer to \(request.outputURL.url.lastPathComponent)")
+        }
+
+        return USDAttributeTypeRewriteResult(
+            changedPrimPaths: changedPrimPaths,
+            warnings: warnings
+        )
+    }
+
     public func materialSurfaceShader(
         _ query: USDMaterialSurfaceShaderQuery
     ) throws -> USDMaterialSurfaceShader? {
