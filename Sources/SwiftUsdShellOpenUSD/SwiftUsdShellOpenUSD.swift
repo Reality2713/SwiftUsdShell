@@ -2500,6 +2500,188 @@ private extension OpenUSDStageRuntime {
         guard !targets.empty() else { return nil }
         return stableOwnedString(describing: targets[0].GetAsString())
     }
+
+    // MARK: - Sparse layer authoring
+
+    public func writeSparseLayer(
+        request: USDSparseLayerRequest,
+        outputURL: USDStageURL
+    ) throws {
+        let usda = generateSparseUSDA(request)
+        if FileManager.default.fileExists(atPath: outputURL.url.path) {
+            try FileManager.default.removeItem(at: outputURL.url)
+        }
+        try usda.write(to: outputURL.url, atomically: true, encoding: .utf8)
+    }
+
+    public func validatePrimExistence(
+        stageURL: USDStageURL,
+        primPath: USDPath
+    ) throws -> (exists: Bool, warnings: [String]) {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadNone)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        if prim.IsValid() {
+            return (true, [])
+        }
+        return (false, ["Prim not found at path '\(primPath.rawValue)'"])
+    }
+
+    public func shaderInputSource(
+        _ query: USDShaderInputSourceQuery
+    ) throws -> USDShaderInputSource? {
+        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadNone)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(query.shaderPath.rawValue)))
+        guard prim.IsValid() else { return nil }
+
+        let shader = UsdShadeShader(prim)
+        guard shader.GetPrim().IsValid() else { return nil }
+
+        let inputName = query.inputName
+            .replacingOccurrences(of: "inputs:", with: "")
+        let input = shader.GetInput(TfToken(std.string(inputName)))
+        guard input.GetAttr().IsValid(), input.HasConnectedSource() else {
+            return nil
+        }
+
+        let sources = input.GetConnectedSources(nil)
+        guard sources.size() > 0 else { return nil }
+
+        let sourceInfo = sources[0]
+        let sourcePrim = sourceInfo.source.GetPrim()
+        guard sourcePrim.IsValid() else { return nil }
+
+        return USDShaderInputSource(
+            sourcePrimPath: USDPath(
+                stableOwnedString(describing: sourcePrim.GetPath().GetAsString())
+            ),
+            sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
+            sourceShaderIdentifier: shaderIdentifier(sourcePrim)
+        )
+    }
+
+    private func generateSparseUSDA(_ request: USDSparseLayerRequest) -> String {
+        var lines: [String] = ["#usda 1.0"]
+        if let doc = request.documentation, !doc.isEmpty {
+            lines.append("# \(doc)")
+        }
+        if !request.overrides.isEmpty {
+            lines.append("")
+        }
+        for override in request.overrides {
+            emitSparseOverride(override, into: &lines)
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func emitSparseOverride(
+        _ override: USDSparseOverride,
+        into lines: inout [String]
+    ) {
+        let components = override.primPath.rawValue
+            .split(separator: "/")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard !components.isEmpty else { return }
+
+        let lastIndex = components.count - 1
+        for (index, component) in components.enumerated() {
+            let indent = String(repeating: "    ", count: index)
+            let specifier: USDSparsePrimSpecifier =
+                index == lastIndex ? override.specifier : .over
+            lines.append(
+                "\(indent)\(sparseSpecifierKeyword(specifier)) \"\(escapeUSDAPathComponent(component))\""
+            )
+            lines.append("\(indent){")
+            if index == lastIndex {
+                emitSparsePrimBody(
+                    attributes: override.attributes,
+                    relationships: override.relationships,
+                    children: override.children,
+                    indent: indent + "    ",
+                    into: &lines
+                )
+            }
+        }
+        for index in (0..<components.count).reversed() {
+            let indent = String(repeating: "    ", count: index)
+            lines.append("\(indent)}")
+        }
+    }
+
+    private func emitSparseChildPrim(
+        _ child: USDSparseChildPrim,
+        indent: String,
+        into lines: inout [String]
+    ) {
+        lines.append(
+            "\(indent)\(sparseSpecifierKeyword(child.specifier)) \"\(escapeUSDAPathComponent(child.name))\""
+        )
+        lines.append("\(indent){")
+        emitSparsePrimBody(
+            attributes: child.attributes,
+            relationships: child.relationships,
+            children: child.children,
+            indent: indent + "    ",
+            into: &lines
+        )
+        lines.append("\(indent)}")
+    }
+
+    private func emitSparsePrimBody(
+        attributes: [USDSparseAttributeOverride],
+        relationships: [USDSparseRelationship],
+        children: [USDSparseChildPrim],
+        indent: String,
+        into lines: inout [String]
+    ) {
+        for attr in attributes {
+            switch attr.opinion {
+            case .clear:
+                lines.append("\(indent)\(attr.usdTypeName) \(attr.name) = None")
+            case .value(let value):
+                lines.append("\(indent)\(attr.usdTypeName) \(attr.name) = \(value.usdaLiteral)")
+            case .connection(let target):
+                lines.append(
+                    "\(indent)\(attr.usdTypeName) \(attr.name).connect = <\(target.rawValue)>"
+                )
+            case .declare:
+                lines.append("\(indent)\(attr.usdTypeName) \(attr.name)")
+            }
+        }
+        for rel in relationships {
+            if let targets = rel.targets {
+                let targetList = targets.map { "<\($0.rawValue)>" }.joined(separator: ", ")
+                if targets.count == 1 {
+                    lines.append("\(indent)rel \(rel.name) = \(targetList)")
+                } else {
+                    lines.append("\(indent)rel \(rel.name) = [\(targetList)]")
+                }
+            } else {
+                lines.append("\(indent)rel \(rel.name) = []")
+            }
+        }
+        for child in children {
+            emitSparseChildPrim(child, indent: indent, into: &lines)
+        }
+    }
+
+    private func sparseSpecifierKeyword(_ specifier: USDSparsePrimSpecifier) -> String {
+        switch specifier {
+        case .over:
+            return "over"
+        case .def(let typeName):
+            if let typeName, !typeName.isEmpty {
+                return "def \(typeName)"
+            }
+            return "def"
+        }
+    }
+
+    private func escapeUSDAPathComponent(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+    }
 }
 
 private func collectDiagnostics(_ body: () -> Void) -> [USDDiagnostic] {

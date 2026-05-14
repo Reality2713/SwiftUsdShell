@@ -138,6 +138,35 @@ public extension USDValue {
             description
         }
     }
+
+    public var usdaLiteral: String {
+        switch self {
+        case .bool(let value):
+            value ? "true" : "false"
+        case .int(let value):
+            String(value)
+        case .double(let value):
+            String(value)
+        case .string(let value):
+            "\"\(value)\""
+        case .token(let value):
+            "\"\(value.rawValue)\""
+        case .assetPath(let value):
+            "@\(value.rawValue)@"
+        case .vector2(let value):
+            "(\(value.x), \(value.y))"
+        case .vector3(let value):
+            "(\(value.x), \(value.y), \(value.z))"
+        case .vector4(let value):
+            "(\(value.x), \(value.y), \(value.z), \(value.w))"
+        case .matrix4x4(let value):
+            "(\(value.values.map { String($0) }.joined(separator: ", ")))"
+        case .array(let values):
+            "[\(values.map(\.usdaLiteral).joined(separator: ", "))]"
+        case .unsupported(_, let description):
+            description
+        }
+    }
 }
 
 public struct USDVector2: Hashable, Sendable, Codable {
@@ -935,21 +964,32 @@ public enum USDMaterialEditOperation: Hashable, Sendable, Codable {
 }
 
 public struct USDMaterialEditRequest: Hashable, Sendable, Codable {
+    /// Source stage opened for shader-network inspection.
     public var stageURL: USDStageURL
+    /// Material prim path within the stage.
     public var materialPath: USDPath
+    /// Canonical editable channel to operate on.
     public var channel: USDMaterialEditableChannelID
+    /// Edit operation to perform.
     public var operation: USDMaterialEditOperation
+    /// When non-nil, the runtime writes a sparse override layer to this URL
+    /// instead of editing the source stage in-place. The output contains only
+    /// the delta opinions — no source-stage content, sublayer references, or
+    /// composed metadata are copied.
+    public var outputLayerURL: USDStageURL?
 
     public init(
         stageURL: USDStageURL,
         materialPath: USDPath,
         channel: USDMaterialEditableChannelID,
-        operation: USDMaterialEditOperation
+        operation: USDMaterialEditOperation,
+        outputLayerURL: USDStageURL? = nil
     ) {
         self.stageURL = stageURL
         self.materialPath = materialPath
         self.channel = channel
         self.operation = operation
+        self.outputLayerURL = outputLayerURL
     }
 }
 
@@ -980,6 +1020,181 @@ public struct USDMaterialEditResult: Hashable, Sendable, Codable {
         self.changedAssetPaths = changedAssetPaths
         self.warnings = warnings
         self.convertedTo = convertedTo
+    }
+}
+
+// MARK: - Sparse Layer Authoring DTOs
+
+/// USD prim specifier for sparse-layer authoring.
+///
+/// `over` adds opinions to a prim that already exists in a stronger layer.
+/// `def` defines the prim in this layer with an optional schema type name
+/// (e.g. `"Material"`, `"Shader"`, `"Xform"`). Pass `nil` for a typeless
+/// `def`.
+public enum USDSparsePrimSpecifier: Hashable, Sendable, Codable {
+    case over
+    case def(typeName: String?)
+}
+
+/// An opinion to author on a single USD attribute within a sparse override layer.
+public enum USDSparseAttributeOpinion: Hashable, Sendable, Codable {
+    /// Clear any authored value or connection on the attribute.
+    case clear
+    /// Write a literal value to the attribute.
+    case value(USDValue)
+    /// Connect the attribute to a target prim's output.
+    case connection(target: USDPath)
+    /// Declare the attribute with its type name but author no value or
+    /// connection. Useful for declaring shader output ports.
+    case declare
+}
+
+/// A single attribute override within a sparse USD layer.
+public struct USDSparseAttributeOverride: Hashable, Sendable, Codable {
+    /// Full attribute name including namespace prefix (e.g. "inputs:diffuseColor").
+    public var name: String
+    /// The opinion to author on this attribute.
+    public var opinion: USDSparseAttributeOpinion
+    /// USD type name required for USDA serialization (e.g. "float", "color3f").
+    public var usdTypeName: String
+
+    public init(name: String, opinion: USDSparseAttributeOpinion, usdTypeName: String) {
+        self.name = name
+        self.opinion = opinion
+        self.usdTypeName = usdTypeName
+    }
+}
+
+/// A relationship override within a sparse USD layer.
+public struct USDSparseRelationship: Hashable, Sendable, Codable {
+    /// Relationship name (e.g. "material:binding").
+    public var name: String
+    /// Target prim paths, or nil to clear the relationship.
+    public var targets: [USDPath]?
+
+    public init(name: String, targets: [USDPath]?) {
+        self.name = name
+        self.targets = targets
+    }
+}
+
+/// A nested prim spec authored relative to a parent prim block.
+///
+/// Children let SDK callers compose multi-prim structures (e.g. a
+/// `Material` containing a `Shader`) without hand-authoring nested USDA
+/// strings. Shell stays semantic-free: type names and attribute names are
+/// raw strings supplied by the SDK layer.
+public struct USDSparseChildPrim: Hashable, Sendable, Codable {
+    /// Child prim name (no slashes).
+    public var name: String
+    /// Specifier for this child prim.
+    public var specifier: USDSparsePrimSpecifier
+    /// Attribute opinions to author inside the child prim block.
+    public var attributes: [USDSparseAttributeOverride]
+    /// Relationship opinions to author inside the child prim block.
+    public var relationships: [USDSparseRelationship]
+    /// Further nested children.
+    public var children: [USDSparseChildPrim]
+
+    public init(
+        name: String,
+        specifier: USDSparsePrimSpecifier,
+        attributes: [USDSparseAttributeOverride] = [],
+        relationships: [USDSparseRelationship] = [],
+        children: [USDSparseChildPrim] = []
+    ) {
+        self.name = name
+        self.specifier = specifier
+        self.attributes = attributes
+        self.relationships = relationships
+        self.children = children
+    }
+}
+
+/// A group of sparse opinions targeting a single prim path.
+///
+/// Ancestor path components are always emitted as `over` blocks so that
+/// authoring a sparse opinion on `/Root/Materials/Wood` does not redefine
+/// `Root` or `Materials`. Only the terminal component uses
+/// ``specifier``.
+public struct USDSparseOverride: Hashable, Sendable, Codable {
+    /// Prim path that owns the overridden attributes and relationships.
+    public var primPath: USDPath
+    /// Specifier for the terminal prim. Defaults to `.over` to preserve
+    /// existing call sites that only author into pre-existing prims.
+    public var specifier: USDSparsePrimSpecifier
+    /// Attribute opinions to author inside the prim's block.
+    public var attributes: [USDSparseAttributeOverride]
+    /// Relationship opinions to author inside the prim's block.
+    public var relationships: [USDSparseRelationship]
+    /// Nested prim specs authored inside the prim's block.
+    public var children: [USDSparseChildPrim]
+
+    public init(
+        primPath: USDPath,
+        specifier: USDSparsePrimSpecifier = .over,
+        attributes: [USDSparseAttributeOverride] = [],
+        relationships: [USDSparseRelationship] = [],
+        children: [USDSparseChildPrim] = []
+    ) {
+        self.primPath = primPath
+        self.specifier = specifier
+        self.attributes = attributes
+        self.relationships = relationships
+        self.children = children
+    }
+}
+
+/// A complete sparse USD layer to generate.
+public struct USDSparseLayerRequest: Hashable, Sendable, Codable {
+    /// Overrides to emit as `over` specifiers.
+    public var overrides: [USDSparseOverride]
+    /// Optional documentation comment emitted after the `#usda 1.0` header.
+    public var documentation: String?
+
+    public init(overrides: [USDSparseOverride] = [], documentation: String? = nil) {
+        self.overrides = overrides
+        self.documentation = documentation
+    }
+}
+
+/// Query for the first connected source of a shader input.
+public struct USDShaderInputSourceQuery: Hashable, Sendable, Codable {
+    /// Stage to inspect.
+    public var stageURL: USDStageURL
+    /// Shader prim path that owns the input.
+    public var shaderPath: USDPath
+    /// Shader input name. The `inputs:` prefix is accepted but not required.
+    public var inputName: String
+
+    public init(
+        stageURL: USDStageURL,
+        shaderPath: USDPath,
+        inputName: String
+    ) {
+        self.stageURL = stageURL
+        self.shaderPath = shaderPath
+        self.inputName = inputName
+    }
+}
+
+/// Neutral description of a connected shader input source.
+public struct USDShaderInputSource: Hashable, Sendable, Codable {
+    /// Prim path of the connected source.
+    public var sourcePrimPath: USDPath
+    /// Source property name reported by UsdShade.
+    public var sourceName: String
+    /// Shader identifier authored on the source prim, when present.
+    public var sourceShaderIdentifier: String?
+
+    public init(
+        sourcePrimPath: USDPath,
+        sourceName: String,
+        sourceShaderIdentifier: String? = nil
+    ) {
+        self.sourcePrimPath = sourcePrimPath
+        self.sourceName = sourceName
+        self.sourceShaderIdentifier = sourceShaderIdentifier
     }
 }
 
