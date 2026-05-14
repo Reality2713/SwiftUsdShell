@@ -1042,6 +1042,9 @@ public enum USDSparseAttributeOpinion: Hashable, Sendable, Codable {
     case clear
     /// Write a literal value to the attribute.
     case value(USDValue)
+    /// Write a literal value and block weaker composed connections on the
+    /// attribute.
+    case valueClearingConnections(USDValue)
     /// Connect the attribute to a target prim's output.
     case connection(target: USDPath)
     /// Declare the attribute with its type name but author no value or
@@ -1195,6 +1198,42 @@ public struct USDShaderInputSource: Hashable, Sendable, Codable {
         self.sourcePrimPath = sourcePrimPath
         self.sourceName = sourceName
         self.sourceShaderIdentifier = sourceShaderIdentifier
+    }
+}
+
+/// Query for the effective surface shader connected to a material.
+public struct USDMaterialSurfaceShaderQuery: Hashable, Sendable, Codable {
+    /// Stage to inspect.
+    public var stageURL: USDStageURL
+    /// Material prim path.
+    public var materialPath: USDPath
+    /// Optional render context. Use an empty token for the default surface output.
+    public var renderContext: USDToken
+
+    public init(
+        stageURL: USDStageURL,
+        materialPath: USDPath,
+        renderContext: USDToken = ""
+    ) {
+        self.stageURL = stageURL
+        self.materialPath = materialPath
+        self.renderContext = renderContext
+    }
+}
+
+/// Neutral description of a material's effective surface shader.
+public struct USDMaterialSurfaceShader: Hashable, Sendable, Codable {
+    /// Surface shader prim path resolved by UsdShade.
+    public var shaderPath: USDPath
+    /// Shader identifier authored on the shader prim, when present.
+    public var shaderIdentifier: String?
+
+    public init(
+        shaderPath: USDPath,
+        shaderIdentifier: String? = nil
+    ) {
+        self.shaderPath = shaderPath
+        self.shaderIdentifier = shaderIdentifier
     }
 }
 

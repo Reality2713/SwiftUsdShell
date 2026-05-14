@@ -24,6 +24,7 @@ typealias SdfVariability = pxr.SdfVariability
 typealias VtDictionary = pxr.VtDictionary
 typealias SdfChangeBlock = pxr.SdfChangeBlock
 typealias UsdShadeInput = pxr.UsdShadeInput
+typealias UsdShadeAttributeType = pxr.UsdShadeAttributeType
 typealias UsdShadeMaterial = pxr.UsdShadeMaterial
 typealias UsdShadeMaterialBindingAPI = pxr.UsdShadeMaterialBindingAPI
 typealias UsdShadeShader = pxr.UsdShadeShader
@@ -55,6 +56,28 @@ private let nonXformableTypeNames: Set<String> = [
     "shader",
     "skelanimation",
 ]
+
+private struct SparsePrimNode {
+    var name: String
+    var specifier: USDSparsePrimSpecifier
+    var attributes: [USDSparseAttributeOverride]
+    var relationships: [USDSparseRelationship]
+    var children: [SparsePrimNode]
+
+    init(
+        name: String,
+        specifier: USDSparsePrimSpecifier,
+        attributes: [USDSparseAttributeOverride] = [],
+        relationships: [USDSparseRelationship] = [],
+        children: [SparsePrimNode] = []
+    ) {
+        self.name = name
+        self.specifier = specifier
+        self.attributes = attributes
+        self.relationships = relationships
+        self.children = children
+    }
+}
 
 /// Mechanical runtime adapter that answers SwiftUsdShell requests with OpenUSD.
 ///
@@ -2559,68 +2582,177 @@ private extension OpenUSDStageRuntime {
         )
     }
 
+    public func materialSurfaceShader(
+        _ query: USDMaterialSurfaceShaderQuery
+    ) throws -> USDMaterialSurfaceShader? {
+        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadNone)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(query.materialPath.rawValue)))
+        guard prim.IsValid() else { return nil }
+
+        let material = UsdShadeMaterial(prim)
+        guard material.GetPrim().IsValid() else { return nil }
+
+        let shader = material.ComputeSurfaceSource(
+            TfToken(std.string(query.renderContext.rawValue)),
+            nil as UnsafeMutablePointer<TfToken>?,
+            nil as UnsafeMutablePointer<UsdShadeAttributeType>?
+        )
+        let shaderPrim = shader.GetPrim()
+        guard shaderPrim.IsValid() else { return nil }
+
+        return USDMaterialSurfaceShader(
+            shaderPath: USDPath(
+                stableOwnedString(describing: shaderPrim.GetPath().GetAsString())
+            ),
+            shaderIdentifier: shaderIdentifier(shaderPrim)
+        )
+    }
+
     private func generateSparseUSDA(_ request: USDSparseLayerRequest) -> String {
         var lines: [String] = ["#usda 1.0"]
         if let doc = request.documentation, !doc.isEmpty {
             lines.append("# \(doc)")
         }
-        if !request.overrides.isEmpty {
+        let roots = sparsePrimTree(for: request.overrides)
+        if !roots.isEmpty {
             lines.append("")
         }
-        for override in request.overrides {
-            emitSparseOverride(override, into: &lines)
+        for root in roots {
+            emitSparsePrimNode(root, indentLevel: 0, into: &lines)
         }
         return lines.joined(separator: "\n") + "\n"
     }
 
-    private func emitSparseOverride(
-        _ override: USDSparseOverride,
-        into lines: inout [String]
-    ) {
-        let components = override.primPath.rawValue
-            .split(separator: "/")
-            .map(String.init)
-            .filter { !$0.isEmpty }
-        guard !components.isEmpty else { return }
-
-        let lastIndex = components.count - 1
-        for (index, component) in components.enumerated() {
-            let indent = String(repeating: "    ", count: index)
-            let specifier: USDSparsePrimSpecifier =
-                index == lastIndex ? override.specifier : .over
-            lines.append(
-                "\(indent)\(sparseSpecifierKeyword(specifier)) \"\(escapeUSDAPathComponent(component))\""
+    private func sparsePrimTree(for overrides: [USDSparseOverride]) -> [SparsePrimNode] {
+        var roots: [SparsePrimNode] = []
+        for override in overrides {
+            let components = override.primPath.rawValue
+                .split(separator: "/")
+                .map(String.init)
+                .filter { !$0.isEmpty }
+            guard !components.isEmpty else { continue }
+            insertSparseOverride(
+                override,
+                components: components,
+                componentIndex: 0,
+                into: &roots
             )
-            lines.append("\(indent){")
-            if index == lastIndex {
-                emitSparsePrimBody(
-                    attributes: override.attributes,
-                    relationships: override.relationships,
-                    children: override.children,
-                    indent: indent + "    ",
-                    into: &lines
+        }
+        return roots
+    }
+
+    private func insertSparseOverride(
+        _ override: USDSparseOverride,
+        components: [String],
+        componentIndex: Int,
+        into nodes: inout [SparsePrimNode]
+    ) {
+        let component = components[componentIndex]
+        let isTerminal = componentIndex == components.count - 1
+        let specifier: USDSparsePrimSpecifier = isTerminal ? override.specifier : .over
+        let nodeIndex = sparseNodeIndex(named: component, in: nodes)
+        if let nodeIndex {
+            nodes[nodeIndex].specifier = mergedSparseSpecifier(
+                existing: nodes[nodeIndex].specifier,
+                incoming: specifier
+            )
+            if isTerminal {
+                nodes[nodeIndex].attributes.append(contentsOf: override.attributes)
+                nodes[nodeIndex].relationships.append(contentsOf: override.relationships)
+                mergeSparseChildren(override.children, into: &nodes[nodeIndex].children)
+            } else {
+                insertSparseOverride(
+                    override,
+                    components: components,
+                    componentIndex: componentIndex + 1,
+                    into: &nodes[nodeIndex].children
                 )
             }
-        }
-        for index in (0..<components.count).reversed() {
-            let indent = String(repeating: "    ", count: index)
-            lines.append("\(indent)}")
+        } else {
+            var node = SparsePrimNode(name: component, specifier: specifier)
+            if isTerminal {
+                node.attributes = override.attributes
+                node.relationships = override.relationships
+                node.children = sparseChildNodes(from: override.children)
+            } else {
+                insertSparseOverride(
+                    override,
+                    components: components,
+                    componentIndex: componentIndex + 1,
+                    into: &node.children
+                )
+            }
+            nodes.append(node)
         }
     }
 
-    private func emitSparseChildPrim(
-        _ child: USDSparseChildPrim,
-        indent: String,
+    private func sparseChildNodes(from children: [USDSparseChildPrim]) -> [SparsePrimNode] {
+        var nodes: [SparsePrimNode] = []
+        mergeSparseChildren(children, into: &nodes)
+        return nodes
+    }
+
+    private func mergeSparseChildren(
+        _ children: [USDSparseChildPrim],
+        into nodes: inout [SparsePrimNode]
+    ) {
+        for child in children {
+            if let nodeIndex = sparseNodeIndex(named: child.name, in: nodes) {
+                nodes[nodeIndex].specifier = mergedSparseSpecifier(
+                    existing: nodes[nodeIndex].specifier,
+                    incoming: child.specifier
+                )
+                nodes[nodeIndex].attributes.append(contentsOf: child.attributes)
+                nodes[nodeIndex].relationships.append(contentsOf: child.relationships)
+                mergeSparseChildren(child.children, into: &nodes[nodeIndex].children)
+            } else {
+                nodes.append(
+                    SparsePrimNode(
+                        name: child.name,
+                        specifier: child.specifier,
+                        attributes: child.attributes,
+                        relationships: child.relationships,
+                        children: sparseChildNodes(from: child.children)
+                    )
+                )
+            }
+        }
+    }
+
+    private func sparseNodeIndex(named name: String, in nodes: [SparsePrimNode]) -> Int? {
+        nodes.firstIndex { $0.name == name }
+    }
+
+    private func mergedSparseSpecifier(
+        existing: USDSparsePrimSpecifier,
+        incoming: USDSparsePrimSpecifier
+    ) -> USDSparsePrimSpecifier {
+        switch (existing, incoming) {
+        case (.over, .over):
+            return .over
+        case (.def, .over):
+            return existing
+        case (.over, .def):
+            return incoming
+        case (.def(let existingType), .def(let incomingType)):
+            return .def(typeName: existingType ?? incomingType)
+        }
+    }
+
+    private func emitSparsePrimNode(
+        _ node: SparsePrimNode,
+        indentLevel: Int,
         into lines: inout [String]
     ) {
+        let indent = String(repeating: "    ", count: indentLevel)
         lines.append(
-            "\(indent)\(sparseSpecifierKeyword(child.specifier)) \"\(escapeUSDAPathComponent(child.name))\""
+            "\(indent)\(sparseSpecifierKeyword(node.specifier)) \"\(escapeUSDAPathComponent(node.name))\""
         )
         lines.append("\(indent){")
         emitSparsePrimBody(
-            attributes: child.attributes,
-            relationships: child.relationships,
-            children: child.children,
+            attributes: node.attributes,
+            relationships: node.relationships,
+            children: node.children,
             indent: indent + "    ",
             into: &lines
         )
@@ -2630,7 +2762,7 @@ private extension OpenUSDStageRuntime {
     private func emitSparsePrimBody(
         attributes: [USDSparseAttributeOverride],
         relationships: [USDSparseRelationship],
-        children: [USDSparseChildPrim],
+        children: [SparsePrimNode],
         indent: String,
         into lines: inout [String]
     ) {
@@ -2638,8 +2770,12 @@ private extension OpenUSDStageRuntime {
             switch attr.opinion {
             case .clear:
                 lines.append("\(indent)\(attr.usdTypeName) \(attr.name) = None")
+                lines.append("\(indent)\(attr.usdTypeName) \(attr.name).connect = None")
             case .value(let value):
                 lines.append("\(indent)\(attr.usdTypeName) \(attr.name) = \(value.usdaLiteral)")
+            case .valueClearingConnections(let value):
+                lines.append("\(indent)\(attr.usdTypeName) \(attr.name) = \(value.usdaLiteral)")
+                lines.append("\(indent)\(attr.usdTypeName) \(attr.name).connect = None")
             case .connection(let target):
                 lines.append(
                     "\(indent)\(attr.usdTypeName) \(attr.name).connect = <\(target.rawValue)>"
@@ -2661,7 +2797,7 @@ private extension OpenUSDStageRuntime {
             }
         }
         for child in children {
-            emitSparseChildPrim(child, indent: indent, into: &lines)
+            emitSparsePrimNode(child, indentLevel: indent.count / 4, into: &lines)
         }
     }
 
