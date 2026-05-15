@@ -2597,7 +2597,7 @@ private extension OpenUSDStageRuntime {
         var warnings: [String] = []
 
         for rewrite in request.rewrites {
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(rewrite.primPath)))
+            var prim = stage.GetPrimAtPath(SdfPath(std.string(rewrite.primPath)))
             guard prim.IsValid() else {
                 warnings.append("Prim not found at '\(rewrite.primPath)'")
                 continue
@@ -2610,8 +2610,7 @@ private extension OpenUSDStageRuntime {
             }
 
             // Validate the target type name before modifying the layer.
-            let targetTypeName = SdfValueTypeName.GetByName(TfToken(std.string(rewrite.targetTypeName)))
-            guard targetTypeName.IsValid() else {
+            guard let targetTypeName = sdfValueTypeName(named: rewrite.targetTypeName) else {
                 warnings.append("Unknown type name '\(rewrite.targetTypeName)' for attribute '\(rewrite.attributeName)' on '\(rewrite.primPath)'")
                 continue
             }
@@ -3004,6 +3003,73 @@ private func xformOpKind(for token: String) -> USDAuthoredXformOpKind {
         .transform
     default:
         .custom(token: token)
+    }
+}
+
+private func sdfValueTypeName(named name: String) -> SdfValueTypeName? {
+    switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "bool":
+        SdfValueTypeName.Bool
+    case "uchar":
+        SdfValueTypeName.UChar
+    case "int":
+        SdfValueTypeName.Int
+    case "uint":
+        SdfValueTypeName.UInt
+    case "int64":
+        SdfValueTypeName.Int64
+    case "uint64":
+        SdfValueTypeName.UInt64
+    case "half":
+        SdfValueTypeName.Half
+    case "float":
+        SdfValueTypeName.Float
+    case "double":
+        SdfValueTypeName.Double
+    case "timecode":
+        SdfValueTypeName.TimeCode
+    case "string":
+        SdfValueTypeName.String
+    case "token":
+        SdfValueTypeName.Token
+    case "asset":
+        SdfValueTypeName.Asset
+    case "float2":
+        SdfValueTypeName.Float2
+    case "float3":
+        SdfValueTypeName.Float3
+    case "float4":
+        SdfValueTypeName.Float4
+    case "double2":
+        SdfValueTypeName.Double2
+    case "double3":
+        SdfValueTypeName.Double3
+    case "double4":
+        SdfValueTypeName.Double4
+    case "point3f":
+        SdfValueTypeName.Point3f
+    case "point3d":
+        SdfValueTypeName.Point3d
+    case "vector3f":
+        SdfValueTypeName.Vector3f
+    case "vector3d":
+        SdfValueTypeName.Vector3d
+    case "normal3f":
+        SdfValueTypeName.Normal3f
+    case "normal3d":
+        SdfValueTypeName.Normal3d
+    case "color3f":
+        SdfValueTypeName.Color3f
+    case "color3d":
+        SdfValueTypeName.Color3d
+    case "color4f":
+        SdfValueTypeName.Color4f
+    case "color4d":
+        SdfValueTypeName.Color4d
+    case "matrix4d":
+        SdfValueTypeName.Matrix4d
+    default:
+        nil
     }
 }
 
