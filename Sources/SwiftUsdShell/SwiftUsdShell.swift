@@ -633,6 +633,37 @@ public struct USDMaterialBindingInfo: Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Material Binding Validation DTOs
+
+/// Diagnostic produced by material binding validation on a stage.
+public struct USDMaterialBindingDiagnostic: Hashable, Sendable, Codable {
+    /// Prim path that was checked.
+    public var primPath: String
+    /// Whether the prim is a Mesh (true) or GeomSubset (false).
+    public var isMesh: Bool
+    /// Whether the prim has an effective (composed/inherited) material binding.
+    public var hasEffectiveBinding: Bool
+    /// Whether the prim has MaterialBindingAPI schema applied.
+    public var hasMaterialBindingAPI: Bool
+    /// When non-nil, the binding is inherited from this prim rather than
+    /// authored directly.
+    public var inheritedBinding: String?
+
+    public init(
+        primPath: String,
+        isMesh: Bool,
+        hasEffectiveBinding: Bool,
+        hasMaterialBindingAPI: Bool,
+        inheritedBinding: String?
+    ) {
+        self.primPath = primPath
+        self.isMesh = isMesh
+        self.hasEffectiveBinding = hasEffectiveBinding
+        self.hasMaterialBindingAPI = hasMaterialBindingAPI
+        self.inheritedBinding = inheritedBinding
+    }
+}
+
 // MARK: - Transform Inspection DTOs
 
 public struct USDTransformData: Hashable, Sendable, Codable {
