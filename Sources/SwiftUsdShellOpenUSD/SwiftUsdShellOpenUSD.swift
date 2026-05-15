@@ -2616,8 +2616,8 @@ private extension OpenUSDStageRuntime {
                 primPath: USDPath(primPath),
                 metadata: [
                     USDSparseMetadata(
-                        name: "delete references",
-                        value: "@\(escapedPath)@"
+                        key: .references,
+                        opinion: .delete([.asset(USDPath(escapedPath))])
                     )
                 ]
             ))
@@ -2955,9 +2955,67 @@ private extension OpenUSDStageRuntime {
         guard !metadata.isEmpty else { return }
         lines.append("\(indent)(")
         for entry in metadata {
-            lines.append("\(indent)    \(entry.name) = \(entry.value)")
+            lines.append("\(indent)    \(formatSparseMetadataEntry(entry))")
         }
         lines.append("\(indent))")
+    }
+
+    private func formatSparseMetadataEntry(_ entry: USDSparseMetadata) -> String {
+        let key = entry.key.rawValue
+        switch entry.opinion {
+        case .value(let v):
+            return "\(key) = \(formatMetadataAtomicValue(v))"
+        case .prepend(let items):
+            return "prepend \(key) = \(formatListOpItems(items))"
+        case .append(let items):
+            return "append \(key) = \(formatListOpItems(items))"
+        case .delete(let items):
+            return "delete \(key) = \(formatListOpItems(items))"
+        case .explicitList(let items):
+            return "\(key) = \(formatListOpItems(items))"
+        }
+    }
+
+    private func formatMetadataAtomicValue(_ value: USDMetadataValue) -> String {
+        switch value {
+        case .bool(let b):
+            return b ? "true" : "false"
+        case .string(let s):
+            return "\"\(escapeUSDAStringLiteral(s))\""
+        case .token(let t):
+            return "\"\(t.rawValue)\""
+        case .asset(let p):
+            return "@\(p.rawValue)@"
+        case .variantSelection(let entries):
+            if entries.isEmpty { return "{}" }
+            let parts = entries.map { entry -> String in
+                if let sel = entry.selection {
+                    return "string \(entry.variantSet) = \"\(escapeUSDAStringLiteral(sel))\""
+                } else {
+                    return "string \(entry.variantSet) = \"\""
+                }
+            }
+            return "{ " + parts.joined(separator: "; ") + " }"
+        }
+    }
+
+    private func formatListOpItems(_ items: [USDListOpItem]) -> String {
+        let parts = items.map(formatListOpItem)
+        return "[" + parts.joined(separator: ", ") + "]"
+    }
+
+    private func formatListOpItem(_ item: USDListOpItem) -> String {
+        switch item {
+        case .token(let t):     return "\"\(t.rawValue)\""
+        case .property(let s):  return "\"\(s)\""
+        case .asset(let p):     return "@\(p.rawValue)@"
+        case .path(let p):      return "<\(p.rawValue)>"
+        }
+    }
+
+    private func escapeUSDAStringLiteral(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     private func emitSparsePrimBody(

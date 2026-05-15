@@ -1081,29 +1081,71 @@ public struct USDSparseRelationship: Hashable, Sendable, Codable {
     }
 }
 
+/// Identifier for a USDA prim-metadata field (e.g. `apiSchemas`, `variants`).
+public struct USDMetadataKey: RawRepresentable, Hashable, Sendable, Codable {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+
+    public static let apiSchemas = USDMetadataKey("apiSchemas")
+    public static let variants = USDMetadataKey("variants")
+    public static let references = USDMetadataKey("references")
+    public static let properties = USDMetadataKey("properties")
+    public static let kind = USDMetadataKey("kind")
+    public static let active = USDMetadataKey("active")
+}
+
+/// One variant-set selection inside a `variants` dictionary metadata field.
+/// `selection == nil` means the variant set is mentioned without a chosen option.
+public struct USDVariantSelection: Hashable, Sendable, Codable {
+    public var variantSet: String
+    public var selection: String?
+    public init(variantSet: String, selection: String?) {
+        self.variantSet = variantSet
+        self.selection = selection
+    }
+}
+
+/// Atomic (non-list-op) metadata value.
+public enum USDMetadataValue: Hashable, Sendable, Codable {
+    case bool(Bool)
+    case string(String)
+    case token(USDToken)
+    case asset(USDPath)
+    /// Variant-selection dictionary, emitted as `{ string set = "selection"; ... }` (or `{}` if empty).
+    case variantSelection([USDVariantSelection])
+}
+
+/// One item inside a list-op metadata opinion.
+public enum USDListOpItem: Hashable, Sendable, Codable {
+    case token(USDToken)
+    case property(String)
+    case asset(USDPath)
+    case path(USDPath)
+}
+
+/// A metadata opinion: an explicit value or a list-op (prepend/append/delete/explicit).
+public enum USDMetadataOpinion: Hashable, Sendable, Codable {
+    case value(USDMetadataValue)
+    case prepend([USDListOpItem])
+    case append([USDListOpItem])
+    case delete([USDListOpItem])
+    case explicitList([USDListOpItem])
+}
+
 /// A single metadata opinion authored inside a prim's parenthesized
 /// metadata block.
 ///
-/// Shell deliberately keeps this generic. The ``value`` payload is a raw
-/// USDA literal (already escaped/quoted as needed) supplied by the SDK
-/// layer. SDK callers express domain-specific metadata such as variant
-/// selections or kind authoring by constructing the exact USDA string
-/// they want emitted between `=` and the next field. Shell makes no
-/// assumption about the metadata key vocabulary or payload shape.
-///
-/// Example payloads:
-/// - variant selection: `"{ string lookVariant = \"Walnut\" }"`
-/// - kind: `"\"component\""`
-/// - active: `"false"`
+/// Typed DTO: the ``key`` identifies the metadata field and ``opinion``
+/// expresses either an atomic value or a list-op. Shell translates this
+/// to USDA text below the API boundary; SDK callers never hand-author
+/// USDA literals.
 public struct USDSparseMetadata: Hashable, Sendable, Codable {
-    /// Metadata key (e.g. `variants`, `kind`, `active`, `prepend variantSets`).
-    public var name: String
-    /// Raw USDA literal payload emitted verbatim after the `=` sign.
-    public var value: String
-
-    public init(name: String, value: String) {
-        self.name = name
-        self.value = value
+    public var key: USDMetadataKey
+    public var opinion: USDMetadataOpinion
+    public init(key: USDMetadataKey, opinion: USDMetadataOpinion) {
+        self.key = key
+        self.opinion = opinion
     }
 }
 
