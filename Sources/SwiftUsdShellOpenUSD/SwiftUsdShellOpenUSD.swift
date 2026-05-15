@@ -2598,8 +2598,7 @@ private extension OpenUSDStageRuntime {
         var overrides: [USDSparseOverride] = []
         var warnings: [String] = []
 
-        let primRange = stage.Traverse()
-        for prim in primRange {
+        for prim in stage.Traverse().swiftSequence {
             guard prim.IsValid() else { continue }
             let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
             let primStack = prim.GetPrimStack()
