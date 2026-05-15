@@ -1195,6 +1195,24 @@ public struct USDSparseLayerRequest: Hashable, Sendable, Codable {
     }
 }
 
+// MARK: - Attribute Value Query DTOs
+
+/// Query to read an attribute's authored value from a prim.
+public struct USDAttributeValueQuery: Hashable, Sendable, Codable {
+    /// Stage to open for reading.
+    public var stageURL: USDStageURL
+    /// Prim that owns the attribute.
+    public var primPath: USDPath
+    /// Full attribute name including namespace prefix (e.g. "inputs:diffuseColor").
+    public var attributeName: String
+
+    public init(stageURL: USDStageURL, primPath: USDPath, attributeName: String) {
+        self.stageURL = stageURL
+        self.primPath = primPath
+        self.attributeName = attributeName
+    }
+}
+
 // MARK: - Attribute Type Rewrite DTOs
 
 /// A single attribute type rewrite operation.

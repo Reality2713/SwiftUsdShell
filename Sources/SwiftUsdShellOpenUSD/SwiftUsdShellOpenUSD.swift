@@ -2642,6 +2642,19 @@ private extension OpenUSDStageRuntime {
         )
     }
 
+    /// Reads the authored default value of a single attribute on a prim.
+    /// Returns `nil` when the attribute does not exist or has no value.
+    public func attributeValue(_ query: USDAttributeValueQuery) throws -> USDValue? {
+        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadNone)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(query.primPath.rawValue)))
+        guard prim.IsValid() else { return nil }
+        let attr = prim.GetAttribute(TfToken(std.string(query.attributeName)))
+        guard attr.IsValid() else { return nil }
+        var vtValue = VtValue()
+        guard attr.Get(&vtValue, UsdTimeCode.Default()) else { return nil }
+        return convertVtValueToUSDValue(vtValue)
+    }
+
     /// Rewrites the declared USD type of attributes on prims, preserving
     /// authored values. Operates on the source stage's root layer and writes
     /// the modified layer to the output URL.
@@ -3200,6 +3213,32 @@ private func compositionArc(
         ),
         isInternal: assetPath.isEmpty
     )
+}
+
+private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
+    let raw = stableOwnedString(describing: value).trimmingCharacters(in: .whitespaces)
+    guard !raw.isEmpty else { return nil }
+    // Try as bool
+    if raw == "true" || raw == "false" || raw == "1" || raw == "0" {
+        return .bool(raw == "true" || raw == "1")
+    }
+    // Try as token-quoted string
+    if raw.hasPrefix("\"") && raw.hasSuffix("\"") {
+        let inner = String(raw.dropFirst().dropLast())
+        return .string(inner)
+    }
+    // Try as vector: (x, y, z) or [x, y, z]
+    let vecRaw = raw.trimmingCharacters(in: CharacterSet(charactersIn: "()[]{} "))
+    let parts = vecRaw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+    if parts.count == 2 { return .vector2(USDVector2(x: parts[0], y: parts[1])) }
+    if parts.count == 3 { return .vector3(USDVector3(x: parts[0], y: parts[1], z: parts[2])) }
+    if parts.count == 4 { return .vector4(USDVector4(x: parts[0], y: parts[1], z: parts[2], w: parts[3])) }
+    // Try as double
+    if let d = Double(raw) { return .double(d) }
+    // Try as int
+    if let i = Int64(raw) { return .int(i) }
+    // Fallback: string
+    return .string(raw)
 }
 
 private func stableOwnedString<T>(describing value: T) -> String {
