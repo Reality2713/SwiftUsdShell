@@ -2720,6 +2720,60 @@ private extension OpenUSDStageRuntime {
         )
     }
 
+    /// Flattens a nested shader by copying the child shader prim spec to a
+    /// new sibling path, marks the old child as inactive, and exports a
+    /// sparse override layer. Returns the new destination prim path.
+    public func flattenNestedShaderPrim(
+        stageURL: USDStageURL,
+        parentPath: USDPath,
+        childPath: USDPath,
+        outputURL: USDStageURL
+    ) throws -> USDPath {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        let oldSdfPath = SdfPath(std.string(childPath.rawValue))
+        let parentSdfPath = SdfPath(std.string(parentPath.rawValue))
+        let destinationParent = parentSdfPath.GetParentPath()
+
+        let shaderName = childPath.rawValue.components(separatedBy: "/").last ?? "Shader"
+        // Compute destination path: sibling of parent, dedup naming
+        var newSdfPath = destinationParent.AppendChild(TfToken(std.string(shaderName)))
+        for index in 1... {
+            let testPrim = stage.GetPrimAtPath(newSdfPath)
+            guard testPrim.IsValid() else { break }
+            newSdfPath = destinationParent.AppendChild(
+                TfToken(std.string("\(shaderName)_\(index)"))
+            )
+        }
+
+        let editStagePtr = UsdStage.CreateInMemory(
+            std.string("flatten_shader_edit.usda"),
+            UsdStage.InitialLoadSet.LoadAll
+        )
+        guard editStagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(outputURL, diagnostic: "in-memory-stage")
+        }
+        let editStage = USDOverlay.Dereference(editStagePtr)
+        let editLayer = editStage.GetRootLayer()
+
+        _ = editStage.OverridePrim(destinationParent)
+        guard SdfCopySpec(editLayer, oldSdfPath, newSdfPath) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to copy spec from \(childPath.rawValue) to \(newSdfPath.GetAsString())"
+            )
+        }
+
+        let oldPrim = editStage.OverridePrim(oldSdfPath)
+        _ = oldPrim.SetActive(false)
+
+        guard editStage.Export(std.string(outputURL.url.path), false, SdfLayer.FileFormatArguments()) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to export flatten layer to \(outputURL.url.lastPathComponent)"
+            )
+        }
+
+        return USDPath(stableOwnedString(describing: newSdfPath.GetAsString()))
+    }
+
     public func materialSurfaceShader(
         _ query: USDMaterialSurfaceShaderQuery
     ) throws -> USDMaterialSurfaceShader? {
