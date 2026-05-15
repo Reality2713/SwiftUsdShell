@@ -60,6 +60,7 @@ private let nonXformableTypeNames: Set<String> = [
 private struct SparsePrimNode {
     var name: String
     var specifier: USDSparsePrimSpecifier
+    var metadata: [USDSparseMetadata]
     var attributes: [USDSparseAttributeOverride]
     var relationships: [USDSparseRelationship]
     var children: [SparsePrimNode]
@@ -67,12 +68,14 @@ private struct SparsePrimNode {
     init(
         name: String,
         specifier: USDSparsePrimSpecifier,
+        metadata: [USDSparseMetadata] = [],
         attributes: [USDSparseAttributeOverride] = [],
         relationships: [USDSparseRelationship] = [],
         children: [SparsePrimNode] = []
     ) {
         self.name = name
         self.specifier = specifier
+        self.metadata = metadata
         self.attributes = attributes
         self.relationships = relationships
         self.children = children
@@ -2723,6 +2726,7 @@ private extension OpenUSDStageRuntime {
                 incoming: specifier
             )
             if isTerminal {
+                nodes[nodeIndex].metadata.append(contentsOf: override.metadata)
                 nodes[nodeIndex].attributes.append(contentsOf: override.attributes)
                 nodes[nodeIndex].relationships.append(contentsOf: override.relationships)
                 mergeSparseChildren(override.children, into: &nodes[nodeIndex].children)
@@ -2737,6 +2741,7 @@ private extension OpenUSDStageRuntime {
         } else {
             var node = SparsePrimNode(name: component, specifier: specifier)
             if isTerminal {
+                node.metadata = override.metadata
                 node.attributes = override.attributes
                 node.relationships = override.relationships
                 node.children = sparseChildNodes(from: override.children)
@@ -2768,6 +2773,7 @@ private extension OpenUSDStageRuntime {
                     existing: nodes[nodeIndex].specifier,
                     incoming: child.specifier
                 )
+                nodes[nodeIndex].metadata.append(contentsOf: child.metadata)
                 nodes[nodeIndex].attributes.append(contentsOf: child.attributes)
                 nodes[nodeIndex].relationships.append(contentsOf: child.relationships)
                 mergeSparseChildren(child.children, into: &nodes[nodeIndex].children)
@@ -2776,6 +2782,7 @@ private extension OpenUSDStageRuntime {
                     SparsePrimNode(
                         name: child.name,
                         specifier: child.specifier,
+                        metadata: child.metadata,
                         attributes: child.attributes,
                         relationships: child.relationships,
                         children: sparseChildNodes(from: child.children)
@@ -2814,6 +2821,7 @@ private extension OpenUSDStageRuntime {
         lines.append(
             "\(indent)\(sparseSpecifierKeyword(node.specifier)) \"\(escapeUSDAPathComponent(node.name))\""
         )
+        emitSparsePrimMetadata(node.metadata, indent: indent, into: &lines)
         lines.append("\(indent){")
         emitSparsePrimBody(
             attributes: node.attributes,
@@ -2823,6 +2831,19 @@ private extension OpenUSDStageRuntime {
             into: &lines
         )
         lines.append("\(indent)}")
+    }
+
+    private func emitSparsePrimMetadata(
+        _ metadata: [USDSparseMetadata],
+        indent: String,
+        into lines: inout [String]
+    ) {
+        guard !metadata.isEmpty else { return }
+        lines.append("\(indent)(")
+        for entry in metadata {
+            lines.append("\(indent)    \(entry.name) = \(entry.value)")
+        }
+        lines.append("\(indent))")
     }
 
     private func emitSparsePrimBody(

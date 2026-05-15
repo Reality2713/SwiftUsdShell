@@ -1081,6 +1081,32 @@ public struct USDSparseRelationship: Hashable, Sendable, Codable {
     }
 }
 
+/// A single metadata opinion authored inside a prim's parenthesized
+/// metadata block.
+///
+/// Shell deliberately keeps this generic. The ``value`` payload is a raw
+/// USDA literal (already escaped/quoted as needed) supplied by the SDK
+/// layer. SDK callers express domain-specific metadata such as variant
+/// selections or kind authoring by constructing the exact USDA string
+/// they want emitted between `=` and the next field. Shell makes no
+/// assumption about the metadata key vocabulary or payload shape.
+///
+/// Example payloads:
+/// - variant selection: `"{ string lookVariant = \"Walnut\" }"`
+/// - kind: `"\"component\""`
+/// - active: `"false"`
+public struct USDSparseMetadata: Hashable, Sendable, Codable {
+    /// Metadata key (e.g. `variants`, `kind`, `active`, `prepend variantSets`).
+    public var name: String
+    /// Raw USDA literal payload emitted verbatim after the `=` sign.
+    public var value: String
+
+    public init(name: String, value: String) {
+        self.name = name
+        self.value = value
+    }
+}
+
 /// A nested prim spec authored relative to a parent prim block.
 ///
 /// Children let SDK callers compose multi-prim structures (e.g. a
@@ -1092,6 +1118,8 @@ public struct USDSparseChildPrim: Hashable, Sendable, Codable {
     public var name: String
     /// Specifier for this child prim.
     public var specifier: USDSparsePrimSpecifier
+    /// Metadata opinions emitted inside the prim's `( ... )` block.
+    public var metadata: [USDSparseMetadata]
     /// Attribute opinions to author inside the child prim block.
     public var attributes: [USDSparseAttributeOverride]
     /// Relationship opinions to author inside the child prim block.
@@ -1102,12 +1130,14 @@ public struct USDSparseChildPrim: Hashable, Sendable, Codable {
     public init(
         name: String,
         specifier: USDSparsePrimSpecifier,
+        metadata: [USDSparseMetadata] = [],
         attributes: [USDSparseAttributeOverride] = [],
         relationships: [USDSparseRelationship] = [],
         children: [USDSparseChildPrim] = []
     ) {
         self.name = name
         self.specifier = specifier
+        self.metadata = metadata
         self.attributes = attributes
         self.relationships = relationships
         self.children = children
@@ -1126,6 +1156,8 @@ public struct USDSparseOverride: Hashable, Sendable, Codable {
     /// Specifier for the terminal prim. Defaults to `.over` to preserve
     /// existing call sites that only author into pre-existing prims.
     public var specifier: USDSparsePrimSpecifier
+    /// Metadata opinions emitted inside the terminal prim's `( ... )` block.
+    public var metadata: [USDSparseMetadata]
     /// Attribute opinions to author inside the prim's block.
     public var attributes: [USDSparseAttributeOverride]
     /// Relationship opinions to author inside the prim's block.
@@ -1136,12 +1168,14 @@ public struct USDSparseOverride: Hashable, Sendable, Codable {
     public init(
         primPath: USDPath,
         specifier: USDSparsePrimSpecifier = .over,
+        metadata: [USDSparseMetadata] = [],
         attributes: [USDSparseAttributeOverride] = [],
         relationships: [USDSparseRelationship] = [],
         children: [USDSparseChildPrim] = []
     ) {
         self.primPath = primPath
         self.specifier = specifier
+        self.metadata = metadata
         self.attributes = attributes
         self.relationships = relationships
         self.children = children
