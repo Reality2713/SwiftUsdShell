@@ -2632,6 +2632,29 @@ private extension OpenUSDStageRuntime {
         )
     }
 
+    /// Returns whether a prim has the named API schema applied, checking the
+    /// prim's `apiSchemas` metadata list. Uses canonical USD metadata lookup
+    /// without stringified VtValue parsing.
+    public func primHasAppliedSchema(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        schemaName: String
+    ) throws -> Bool {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadNone)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        guard prim.IsValid() else { return false }
+        var apiSchemasValue = VtValue()
+        guard prim.GetMetadata(TfToken("apiSchemas"), &apiSchemasValue) else { return false }
+        // Check if the schema name appears as a token in the metadata string
+        let text = stableOwnedString(describing: apiSchemasValue)
+        let target = schemaName.lowercased()
+        // Split on common delimiters in VtTokenArray string representation
+        let tokens = text.components(separatedBy: CharacterSet(charactersIn: "\"[], "))
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+            .filter { !$0.isEmpty }
+        return tokens.contains { $0.lowercased() == target }
+    }
+
     /// Reads the authored default value of a single attribute on a prim.
     /// Returns `nil` when the attribute does not exist or has no value.
     public func attributeValue(_ query: USDAttributeValueQuery) throws -> USDValue? {
