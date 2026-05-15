@@ -2600,21 +2600,12 @@ private extension OpenUSDStageRuntime {
 
         for prim in stage.Traverse().swiftSequence {
             guard prim.IsValid() else { continue }
+            guard prim.HasAuthoredReferences() else { continue }
             let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
-            let primStack = prim.GetPrimStack()
-            var hasMatching = false
-
-            for spec in primStack {
-                let primSpec = spec.pointee
-                let refItems = primSpec.GetReferenceList().GetAddedOrExplicitItems()
-                for ref in refItems {
-                    let refAssetPath = stableOwnedString(describing: ref.GetAssetPath())
-                    if refAssetPath.contains(assetPath) || assetPath.contains(refAssetPath) {
-                        hasMatching = true
-                        break
-                    }
-                }
-                if hasMatching { break }
+            var refsValue = VtValue()
+            guard prim.GetMetadata(TfToken("references"), &refsValue) else { continue }
+            let hasMatching = parseReferencesFromMetadata(String(describing: refsValue)).contains { ref in
+                ref.assetPath.contains(assetPath) || assetPath.contains(ref.assetPath)
             }
             guard hasMatching else { continue }
 
@@ -2755,7 +2746,8 @@ private extension OpenUSDStageRuntime {
         let editLayer = editStage.GetRootLayer()
 
         _ = editStage.OverridePrim(destinationParent)
-        guard SdfCopySpec(editLayer, oldSdfPath, newSdfPath) else {
+        let sourceLayer = stage.GetRootLayer()
+        guard pxr.SdfCopySpec(sourceLayer, oldSdfPath, editLayer, newSdfPath) else {
             throw SwiftUsdShellError.invalidValue(
                 "Failed to copy spec from \(childPath.rawValue) to \(newSdfPath.GetAsString())"
             )
