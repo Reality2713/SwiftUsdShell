@@ -2585,6 +2585,63 @@ private extension OpenUSDStageRuntime {
         )
     }
 
+    /// Finds prims in the stage that carry composition-arc references to
+    /// `assetPath` and writes a sparse override layer that removes those
+    /// references. The output contains only `delete references` metadata
+    /// opinions — no source-stage content is copied.
+    public func removeAssetReferences(
+        stageURL: USDStageURL,
+        assetPath: String,
+        outputURL: USDStageURL
+    ) throws -> (changedPrimPaths: [String], warnings: [String]) {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        var overrides: [USDSparseOverride] = []
+        var warnings: [String] = []
+
+        let primRange = stage.Traverse()
+        for prim in primRange {
+            guard prim.IsValid() else { continue }
+            let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
+            let primStack = prim.GetPrimStack()
+            var hasMatching = false
+
+            for spec in primStack {
+                let primSpec = spec.pointee
+                let refItems = primSpec.GetReferenceList().GetAddedOrExplicitItems()
+                for ref in refItems {
+                    let refAssetPath = stableOwnedString(describing: ref.GetAssetPath())
+                    if refAssetPath.contains(assetPath) || assetPath.contains(refAssetPath) {
+                        hasMatching = true
+                        break
+                    }
+                }
+                if hasMatching { break }
+            }
+            guard hasMatching else { continue }
+
+            let escapedPath = assetPath
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            overrides.append(USDSparseOverride(
+                primPath: USDPath(primPath),
+                metadata: [
+                    USDSparseMetadata(
+                        name: "delete references",
+                        value: "@\(escapedPath)@"
+                    )
+                ]
+            ))
+        }
+
+        let request = USDSparseLayerRequest(overrides: overrides)
+        try writeSparseLayer(request: request, outputURL: outputURL)
+
+        return (
+            changedPrimPaths: overrides.map(\.primPath.rawValue),
+            warnings: warnings
+        )
+    }
+
     /// Rewrites the declared USD type of attributes on prims, preserving
     /// authored values. Operates on the source stage's root layer and writes
     /// the modified layer to the output URL.
