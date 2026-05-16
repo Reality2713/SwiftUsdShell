@@ -125,10 +125,7 @@ public struct USDMaterialBindingDiagnostic: Hashable, Sendable, Codable {
     }
 }
 
-
-
 /// Diagnostic produced by material binding validation on a stage.
-public struct USDMaterialBindingDiagnostic: Hashable, Sendable, Codable {
     /// Prim path that was checked.
     public var primPath: String
     /// Whether the prim is a Mesh (true) or GeomSubset (false).

@@ -2679,58 +2679,6 @@ private extension OpenUSDStageRuntime {
 
     /// Validates material binding conformance on Mesh and GeomSubset prims.
     /// Returns diagnostics for prims with missing bindings or missing
-    /// MaterialBindingAPI schema. Uses composed binding resolution via
-    /// UsdShadeMaterialBindingAPI.ComputeBoundMaterial().
-    public func validateMaterialBindings(
-        stageURL: USDStageURL
-    ) throws -> [USDMaterialBindingDiagnostic] {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
-        var diagnostics: [USDMaterialBindingDiagnostic] = []
-
-        for prim in stage.Traverse().swiftSequence {
-            guard prim.IsValid() else { continue }
-            let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
-            let typeName = stableOwnedString(describing: prim.GetTypeName().GetString())
-
-            let isMesh = typeName == "Mesh"
-            let isGeomSubset = typeName == "GeomSubset"
-            guard isMesh || isGeomSubset else { continue }
-
-            let bindingInfo = materialBindingInfo(for: prim, selectedPath: USDPath(primPath))
-            if bindingInfo.effectiveMaterialPath == nil {
-                diagnostics.append(USDMaterialBindingDiagnostic(
-                    primPath: primPath,
-                    isMesh: isMesh,
-                    hasEffectiveBinding: false,
-                    hasMaterialBindingAPI: false,
-                    inheritedBinding: nil
-                ))
-            } else if isMesh {
-                let hasSchema = checkPrimSchema(prim, schemaName: "MaterialBindingAPI")
-                diagnostics.append(USDMaterialBindingDiagnostic(
-                    primPath: primPath,
-                    isMesh: true,
-                    hasEffectiveBinding: true,
-                    hasMaterialBindingAPI: hasSchema,
-                    inheritedBinding: bindingInfo.bindingSourcePrimPath.map { $0.rawValue != primPath ? $0.rawValue : nil } ?? nil
-                ))
-            }
-        }
-
-        return diagnostics
-    }
-
-    private func checkPrimSchema(_ prim: UsdPrim, schemaName: String) -> Bool {
-        var apiSchemasValue = VtValue()
-        guard prim.GetMetadata(TfToken("apiSchemas"), &apiSchemasValue) else { return false }
-        let text = stableOwnedString(describing: apiSchemasValue)
-        let target = schemaName.lowercased()
-        let tokens = text.components(separatedBy: CharacterSet(charactersIn: "\"[], "))
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
-            .filter { !$0.isEmpty }
-        return tokens.contains { $0.lowercased() == target }
-    }
-
     /// Returns whether a prim has the named API schema applied, checking the
     /// prim's `apiSchemas` metadata list. Uses canonical USD metadata lookup
     /// without stringified VtValue parsing.
