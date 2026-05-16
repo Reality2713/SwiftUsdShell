@@ -527,76 +527,6 @@ public extension USDPrimTree {
 
 // MARK: - Material Inspection DTOs
 
-public enum USDMaterialSummaryType: String, Hashable, Sendable, Codable {
-    case usdPreviewSurface
-    case materialX
-    case unknown
-}
-
-public enum USDMaterialPropertyType: String, Hashable, Sendable, Codable {
-    case bool
-    case color
-    case float
-    case int
-    case string
-    case texture
-    case token
-    case unsupported
-}
-
-public enum USDMaterialPropertyInfo: Hashable, Sendable, Codable {
-    case bool(Bool)
-    case color(red: Float, green: Float, blue: Float)
-    case float(Float)
-    case int(Int)
-    case string(String)
-    case texture(url: String, resolvedPath: String?)
-    case token(String)
-    case unsupported(typeName: String, valueDescription: String)
-}
-
-public struct USDMaterialPropertySummary: Hashable, Sendable, Codable {
-    public var name: String
-    public var propertyType: USDMaterialPropertyType
-    public var value: USDMaterialPropertyInfo
-
-    public init(
-        name: String,
-        propertyType: USDMaterialPropertyType,
-        value: USDMaterialPropertyInfo
-    ) {
-        self.name = name
-        self.propertyType = propertyType
-        self.value = value
-    }
-}
-
-public struct USDMaterialSummary: Hashable, Sendable, Codable, Identifiable {
-    public var id: USDPath { path }
-    public var path: USDPath
-    public var name: String
-    public var materialType: USDMaterialSummaryType
-    public var isInstanceable: Bool
-    public var compositionArcs: [USDCompositionArcSummary]
-    public var properties: [USDMaterialPropertySummary]
-
-    public init(
-        path: USDPath,
-        name: String,
-        materialType: USDMaterialSummaryType,
-        isInstanceable: Bool = false,
-        compositionArcs: [USDCompositionArcSummary] = [],
-        properties: [USDMaterialPropertySummary] = []
-    ) {
-        self.path = path
-        self.name = name
-        self.materialType = materialType
-        self.isInstanceable = isInstanceable
-        self.compositionArcs = compositionArcs
-        self.properties = properties
-    }
-}
-
 public enum USDMaterialBindingStrength: String, Hashable, Sendable, Codable, CaseIterable {
     case fallbackStrength
     case weakerThanDescendants
@@ -609,62 +539,7 @@ public enum USDMaterialBindingStrength: String, Hashable, Sendable, Codable, Cas
         case .strongerThanDescendants: return "Stronger"
         }
     }
-}
-
-public struct USDMaterialBindingInfo: Hashable, Sendable, Codable {
-    public var selectedPrimPath: USDPath
-    public var effectiveMaterialPath: USDPath?
-    public var authoredMaterialPath: USDPath?
-    public var bindingSourcePrimPath: USDPath?
-    public var bindingStrength: USDMaterialBindingStrength?
-
-    public init(
-        selectedPrimPath: USDPath,
-        effectiveMaterialPath: USDPath? = nil,
-        authoredMaterialPath: USDPath? = nil,
-        bindingSourcePrimPath: USDPath? = nil,
-        bindingStrength: USDMaterialBindingStrength? = nil
-    ) {
-        self.selectedPrimPath = selectedPrimPath
-        self.effectiveMaterialPath = effectiveMaterialPath
-        self.authoredMaterialPath = authoredMaterialPath
-        self.bindingSourcePrimPath = bindingSourcePrimPath
-        self.bindingStrength = bindingStrength
-    }
-}
-
-// MARK: - Material Binding Validation DTOs
-
-/// Diagnostic produced by material binding validation on a stage.
-public struct USDMaterialBindingDiagnostic: Hashable, Sendable, Codable {
-    /// Prim path that was checked.
-    public var primPath: String
-    /// Whether the prim is a Mesh (true) or GeomSubset (false).
-    public var isMesh: Bool
-    /// Whether the prim has an effective (composed/inherited) material binding.
-    public var hasEffectiveBinding: Bool
-    /// Whether the prim has MaterialBindingAPI schema applied.
-    public var hasMaterialBindingAPI: Bool
-    /// When non-nil, the binding is inherited from this prim rather than
-    /// authored directly.
-    public var inheritedBinding: String?
-
-    public init(
-        primPath: String,
-        isMesh: Bool,
-        hasEffectiveBinding: Bool,
-        hasMaterialBindingAPI: Bool,
-        inheritedBinding: String?
-    ) {
-        self.primPath = primPath
-        self.isMesh = isMesh
-        self.hasEffectiveBinding = hasEffectiveBinding
-        self.hasMaterialBindingAPI = hasMaterialBindingAPI
-        self.inheritedBinding = inheritedBinding
-    }
-}
-
-// MARK: - Transform Inspection DTOs
+}// MARK: - Transform Inspection DTOs
 
 public struct USDTransformData: Hashable, Sendable, Codable {
     public var position: SIMD3<Double>
@@ -1329,20 +1204,17 @@ public struct USDStageInspectionOptions: Hashable, Sendable, Codable {
     public var includePrimTree: Bool
     public var includeStatistics: Bool
     public var includeBounds: Bool
-    public var includeMaterialSummaries: Bool
 
     public init(
         loadPolicy: USDLoadPolicy = .loadAll,
         includePrimTree: Bool = true,
         includeStatistics: Bool = false,
         includeBounds: Bool = false,
-        includeMaterialSummaries: Bool = false
     ) {
         self.loadPolicy = loadPolicy
         self.includePrimTree = includePrimTree
         self.includeStatistics = includeStatistics
         self.includeBounds = includeBounds
-        self.includeMaterialSummaries = includeMaterialSummaries
     }
 }
 
@@ -1365,7 +1237,6 @@ public struct USDStageInspection: Hashable, Sendable, Codable {
     public var primTree: USDPrimTree?
     public var statistics: USDGeometryStatistics?
     public var bounds: USDSceneBounds?
-    public var materials: [USDMaterialSummary]
     public var diagnostics: [USDDiagnostic]
 
     public init(
@@ -1374,7 +1245,6 @@ public struct USDStageInspection: Hashable, Sendable, Codable {
         primTree: USDPrimTree? = nil,
         statistics: USDGeometryStatistics? = nil,
         bounds: USDSceneBounds? = nil,
-        materials: [USDMaterialSummary] = [],
         diagnostics: [USDDiagnostic] = []
     ) {
         self.stageURL = stageURL
@@ -1394,8 +1264,6 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
     public var includeCompositionArcs: Bool
     public var includeVariantSets: Bool
     public var includeTransform: Bool
-    public var includeMaterialBinding: Bool
-    public var includeMaterialSummary: Bool
     public var includeStatistics: Bool
     public var includeBounds: Bool
 
@@ -1406,8 +1274,6 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
         includeCompositionArcs: Bool = true,
         includeVariantSets: Bool = true,
         includeTransform: Bool = true,
-        includeMaterialBinding: Bool = false,
-        includeMaterialSummary: Bool = false,
         includeStatistics: Bool = false,
         includeBounds: Bool = false
     ) {
@@ -1417,8 +1283,6 @@ public struct USDPrimInspectionOptions: Hashable, Sendable, Codable {
         self.includeCompositionArcs = includeCompositionArcs
         self.includeVariantSets = includeVariantSets
         self.includeTransform = includeTransform
-        self.includeMaterialBinding = includeMaterialBinding
-        self.includeMaterialSummary = includeMaterialSummary
         self.includeStatistics = includeStatistics
         self.includeBounds = includeBounds
     }
@@ -1502,8 +1366,6 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
     public var compositionArcs: [USDCompositionArcSummary]
     public var variantSets: [USDVariantSetSummary]
     public var transform: USDTransformInspection?
-    public var materialBinding: USDMaterialBindingInfo?
-    public var materialSummary: USDMaterialSummary?
     public var statistics: USDGeometryStatistics?
     public var bounds: USDSceneBounds?
     public var diagnostics: [USDDiagnostic]
@@ -1513,8 +1375,6 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
         compositionArcs: [USDCompositionArcSummary] = [],
         variantSets: [USDVariantSetSummary] = [],
         transform: USDTransformInspection? = nil,
-        materialBinding: USDMaterialBindingInfo? = nil,
-        materialSummary: USDMaterialSummary? = nil,
         statistics: USDGeometryStatistics? = nil,
         bounds: USDSceneBounds? = nil,
         diagnostics: [USDDiagnostic] = []

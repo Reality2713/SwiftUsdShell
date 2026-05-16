@@ -101,9 +101,6 @@ public final class OpenUSDStageRuntime: Sendable {
             primTree: tree,
             statistics: request.options.includeStatistics ? geometryStatistics(stage.GetPseudoRoot()) : nil,
             bounds: request.options.includeBounds ? sceneBounds(stage) : nil,
-            materials: request.options.includeMaterialSummaries
-                ? materialSummaries(stage.GetPseudoRoot())
-                : [],
             diagnostics: collectDiagnostics {
                 _ = stage.GetPseudoRoot()
             }
@@ -130,12 +127,6 @@ public final class OpenUSDStageRuntime: Sendable {
             compositionArcs: request.options.includeCompositionArcs ? compositionArcs(prim) : [],
             variantSets: request.options.includeVariantSets ? variantSets(prim) : [],
             transform: request.options.includeTransform ? transformInspection(prim, timeCode: request.options.timeCode) : nil,
-            materialBinding: request.options.includeMaterialBinding
-                ? materialBindingInfo(for: prim, selectedPath: request.primPath)
-                : nil,
-            materialSummary: request.options.includeMaterialSummary
-                ? materialSummary(for: prim, stage: stage)
-                : nil,
             statistics: request.options.includeStatistics ? geometryStatistics(prim) : nil,
             bounds: request.options.includeBounds
                 ? sceneBounds(prim, timeCode: request.options.timeCode)
