@@ -370,6 +370,27 @@ public final class OpenUSDStageRuntime: Sendable {
                 )
             )
 
+        case .blockAttribute(let stageURL, let primPath, let attributeName):
+            let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let attr = prim.GetAttribute(TfToken(std.string(attributeName.rawValue)))
+            if attr.IsValid() {
+                attr.Block()
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
+        case .setActive(let stageURL, let primPath, let active):
+            let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            prim.SetActive(active)
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+
         case .save(let stageURL):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
             stage.Save()

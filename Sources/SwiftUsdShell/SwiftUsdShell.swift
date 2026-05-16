@@ -1673,6 +1673,10 @@ public enum USDEditRequest: Hashable, Sendable, Codable {
     case bindMaterial(stageURL: USDStageURL, primPath: USDPath, materialPath: USDPath, strength: USDMaterialBindingStrength)
     case setMaterialBindingStrength(stageURL: USDStageURL, primPath: USDPath, strength: USDMaterialBindingStrength)
     case setVariantSelection(stageURL: USDStageURL, primPath: USDPath, setName: USDToken, selectionId: USDToken?)
+    /// Block an attribute on a prim, removing any authored value or connection.
+    case blockAttribute(stageURL: USDStageURL, primPath: USDPath, attributeName: USDToken)
+    /// Set the active state of a prim (true = active, false = inactive).
+    case setActive(stageURL: USDStageURL, primPath: USDPath, active: Bool)
     case save(stageURL: USDStageURL)
 }
 
