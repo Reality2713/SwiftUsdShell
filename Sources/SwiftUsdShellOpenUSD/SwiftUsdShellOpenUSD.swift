@@ -189,22 +189,7 @@ public final class OpenUSDStageRuntime: Sendable {
             )
 
         case .setDoubleSided(let stageURL, let primPath, let value):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-            }
-            let attr = prim.GetAttribute(TfToken("doubleSided"))
-            if attr.IsValid() {
-                attr.Set(VtValue(value), UsdTimeCode.Default())
-            } else {
-                let created = prim.CreateAttribute(
-                    TfToken("doubleSided"), SdfValueTypeName.Bool, false,
-                    SdfVariability.SdfVariabilityUniform
-                )
-                created.Set(VtValue(value), UsdTimeCode.Default())
-            }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+            return try setDoubleSided(stageURL: stageURL, primPath: primPath, value: value)
 
         case .setSubdivisionScheme(let stageURL, let primPath, let scheme):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
@@ -383,34 +368,64 @@ public final class OpenUSDStageRuntime: Sendable {
             return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .setAssetPaths(let stageURL, let edits):
-            guard !edits.isEmpty else {
-                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
-            }
-            let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
-            var changedPaths = Set<USDPath>()
-            for edit in edits {
-                let prim = stage.GetPrimAtPath(SdfPath(std.string(edit.primPath.rawValue)))
-                guard prim.IsValid() else { continue }
-                let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName.rawValue)))
-                guard attr.IsValid() else { continue }
-                var assetPath = SdfAssetPath(std.string(edit.assetPath))
-                guard attr.Set(&assetPath, UsdTimeCode.Default()) else { continue }
-                changedPaths.insert(edit.primPath)
-            }
-            stage.Save()
-            return USDEditResult(
-                refreshHints: USDEditRefreshHints(
-                    refreshInspector: true,
-                    changedPrimPaths: Array(changedPaths),
-                    changedAssetPaths: edits.map { USDAssetPath($0.assetPath) }
-                )
-            )
+            return try setAssetPaths(stageURL: stageURL, edits: edits)
 
         case .save(let stageURL):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
             stage.Save()
             return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
         }
+    }
+
+    public func setDoubleSided(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        value: Bool
+    ) throws -> USDEditResult {
+        let stage = try stage(for: stageURL, loadPolicy: .loadAll)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+        }
+        let attr = prim.GetAttribute(TfToken("doubleSided"))
+        if attr.IsValid() {
+            attr.Set(VtValue(value), UsdTimeCode.Default())
+        } else {
+            let created = prim.CreateAttribute(
+                TfToken("doubleSided"), SdfValueTypeName.Bool, false,
+                SdfVariability.SdfVariabilityUniform
+            )
+            created.Set(VtValue(value), UsdTimeCode.Default())
+        }
+        return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
+    }
+
+    public func setAssetPaths(
+        stageURL: USDStageURL,
+        edits: [USDAssetPathEdit]
+    ) throws -> USDEditResult {
+        guard !edits.isEmpty else {
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
+        }
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        var changedPaths = Set<USDPath>()
+        for edit in edits {
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(edit.primPath.rawValue)))
+            guard prim.IsValid() else { continue }
+            let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName.rawValue)))
+            guard attr.IsValid() else { continue }
+            var assetPath = SdfAssetPath(std.string(edit.assetPath))
+            guard attr.Set(&assetPath, UsdTimeCode.Default()) else { continue }
+            changedPaths.insert(edit.primPath)
+        }
+        stage.Save()
+        return USDEditResult(
+            refreshHints: USDEditRefreshHints(
+                refreshInspector: true,
+                changedPrimPaths: Array(changedPaths),
+                changedAssetPaths: edits.map { USDAssetPath($0.assetPath) }
+            )
+        )
     }
 
     public func probeCapabilities() -> USDRuntimeCapabilities {
