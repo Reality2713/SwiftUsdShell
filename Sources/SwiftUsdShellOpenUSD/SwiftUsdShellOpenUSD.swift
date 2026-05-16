@@ -671,6 +671,15 @@ public final class OpenUSDStageRuntime: Sendable {
         return geometryStatistics(prim)
     }
 
+    /// Returns stage-level metadata: animation tracks, time codes, up-axis,
+    /// meters-per-unit, and default-prim information.
+    public func stageMetadata(stageURL: USDStageURL) throws -> USDStageMetadata {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        return stageMetadata(stage)
+    }
+
+    /// Returns a high-level model summary combining stage metadata, scene bounds,
+    /// and geometry statistics into a single struct.
     public func modelInfo(stage: USDStageURL) throws -> USDModelInfo {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
