@@ -391,7 +391,7 @@ public final class OpenUSDStageRuntime: Sendable {
             for edit in edits {
                 let prim = stage.GetPrimAtPath(SdfPath(std.string(edit.primPath.rawValue)))
                 guard prim.IsValid() else { continue }
-                let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName)))
+                let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName.rawValue)))
                 guard attr.IsValid() else { continue }
                 var assetPath = SdfAssetPath(std.string(edit.assetPath))
                 guard attr.Set(&assetPath, UsdTimeCode.Default()) else { continue }
@@ -2689,7 +2689,9 @@ private extension OpenUSDStageRuntime {
         let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
         guard prim.IsValid() else { return false }
         let target = schemaName.lowercased()
-        for schema in prim.GetAppliedSchemas().swiftSequence {
+        let appliedSchemas = prim.GetAppliedSchemas()
+        for index in 0..<appliedSchemas.size() {
+            let schema = appliedSchemas[index]
             if stableOwnedString(describing: schema.GetString()).lowercased() == target {
                 return true
             }
