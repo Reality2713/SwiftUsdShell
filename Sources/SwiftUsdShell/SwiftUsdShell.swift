@@ -1252,7 +1252,6 @@ public struct USDStageInspection: Hashable, Sendable, Codable {
         self.primTree = primTree
         self.statistics = statistics
         self.bounds = bounds
-        self.materials = materials
         self.diagnostics = diagnostics
     }
 }
@@ -1383,8 +1382,6 @@ public struct USDPrimInspection: Hashable, Sendable, Codable {
         self.compositionArcs = compositionArcs
         self.variantSets = variantSets
         self.transform = transform
-        self.materialBinding = materialBinding
-        self.materialSummary = materialSummary
         self.statistics = statistics
         self.bounds = bounds
         self.diagnostics = diagnostics
