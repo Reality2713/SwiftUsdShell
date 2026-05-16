@@ -2,6 +2,8 @@
 // ShellOpenUSD owns these C++ material interpretation types.
 // Consumed by OpenUSDKitMaterialInspectionClientLive.
 
+import SwiftUsdShell
+
 public enum USDMaterialSummaryType: String, Hashable, Sendable, Codable {
     case usdPreviewSurface
     case materialX
