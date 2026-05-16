@@ -2216,7 +2216,7 @@ private extension OpenUSDStageRuntime {
 
         let effectiveMaterialPath = effectiveMaterialPath(for: prim).map { USDPath($0) }
         let selectedSdfPath = prim.GetPath()
-        let purposeToken = TfToken(std.string("allPurpose"))
+        let purposeToken = TfToken("")
 
         var authoredMaterialPath: USDPath?
         var bindingSourcePrimPath: USDPath?
@@ -2861,6 +2861,46 @@ private extension OpenUSDStageRuntime {
         }
 
         return USDPath(stableOwnedString(describing: newSdfPath.GetAsString()))
+    }
+
+    /// Authors a sparse material-binding edit layer using `UsdShadeMaterialBindingAPI`.
+    ///
+    /// This intentionally goes through OpenUSD's schema API instead of hand-emitting
+    /// `material:binding` USDA. `Bind` owns the exact relationship name, purpose, and
+    /// binding-strength metadata semantics for the active OpenUSD version.
+    public func writeMaterialBindingLayer(
+        outputURL: USDStageURL,
+        primPath: USDPath,
+        materialPath: USDPath,
+        strength: USDMaterialBindingStrength = .fallbackStrength
+    ) throws {
+        let editStagePtr = UsdStage.CreateInMemory(
+            std.string("material_binding_edit.usda"),
+            UsdStage.InitialLoadSet.LoadAll
+        )
+        guard editStagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(outputURL, diagnostic: "in-memory-stage")
+        }
+        let editStage = USDOverlay.Dereference(editStagePtr)
+        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+        let materialPrim = editStage.OverridePrim(SdfPath(std.string(materialPath.rawValue)))
+
+        let bindingAPI = UsdShadeMaterialBindingAPI.Apply(prim)
+        let material = UsdShadeMaterial(materialPrim)
+        let strengthToken = TfToken(
+            std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue)
+        )
+        guard bindingAPI.Bind(material, strengthToken, TfToken("")) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to bind material \(materialPath.rawValue) to \(primPath.rawValue)"
+            )
+        }
+
+        guard editStage.Export(std.string(outputURL.url.path), false, SdfLayer.FileFormatArguments()) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to export material binding layer to \(outputURL.url.lastPathComponent)"
+            )
+        }
     }
 
     public func materialSurfaceShader(
