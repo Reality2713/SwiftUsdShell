@@ -2703,6 +2703,9 @@ private extension OpenUSDStageRuntime {
         let stage = try self.stage(for: stageURL, loadPolicy: .loadNone)
         let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
         guard prim.IsValid() else { return false }
+        if prim.HasAPI(TfToken(std.string(schemaName))) {
+            return true
+        }
         let target = schemaName.lowercased()
         let appliedSchemas = prim.GetAppliedSchemas()
         for index in 0..<appliedSchemas.size() {
