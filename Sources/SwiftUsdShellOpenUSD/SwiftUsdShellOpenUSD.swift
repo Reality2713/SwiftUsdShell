@@ -2903,6 +2903,37 @@ private extension OpenUSDStageRuntime {
         }
     }
 
+    /// Authors a sparse material-unbinding edit layer using `UsdShadeMaterialBindingAPI`.
+    ///
+    /// `UnbindDirectBinding` blocks the direct binding relationship targets using
+    /// OpenUSD's schema-owned semantics instead of hand-emitting relationship USDA.
+    public func writeMaterialUnbindingLayer(
+        outputURL: USDStageURL,
+        primPath: USDPath
+    ) throws {
+        let editStagePtr = UsdStage.CreateInMemory(
+            std.string("material_unbinding_edit.usda"),
+            UsdStage.InitialLoadSet.LoadAll
+        )
+        guard editStagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(outputURL, diagnostic: "in-memory-stage")
+        }
+        let editStage = USDOverlay.Dereference(editStagePtr)
+        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+        let bindingAPI = UsdShadeMaterialBindingAPI(prim)
+        guard bindingAPI.UnbindDirectBinding(TfToken("")) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to clear material binding on \(primPath.rawValue)"
+            )
+        }
+
+        guard editStage.Export(std.string(outputURL.url.path), false, SdfLayer.FileFormatArguments()) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to export material unbinding layer to \(outputURL.url.lastPathComponent)"
+            )
+        }
+    }
+
     public func materialSurfaceShader(
         _ query: USDMaterialSurfaceShaderQuery
     ) throws -> USDMaterialSurfaceShader? {
