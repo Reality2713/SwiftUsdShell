@@ -391,6 +391,30 @@ public final class OpenUSDStageRuntime: Sendable {
             prim.SetActive(active)
             return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
+        case .setAssetPaths(let stageURL, let edits):
+            guard !edits.isEmpty else {
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
+            }
+            let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+            var changedPaths = Set<USDPath>()
+            for edit in edits {
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(edit.primPath.rawValue)))
+                guard prim.IsValid() else { continue }
+                let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName)))
+                guard attr.IsValid() else { continue }
+                var assetPath = SdfAssetPath(std.string(edit.assetPath))
+                guard attr.Set(&assetPath, UsdTimeCode.Default()) else { continue }
+                changedPaths.insert(edit.primPath)
+            }
+            stage.Save()
+            return USDEditResult(
+                refreshHints: USDEditRefreshHints(
+                    refreshInspector: true,
+                    changedPrimPaths: Array(changedPaths),
+                    changedAssetPaths: edits.map { USDAssetPath($0.assetPath) }
+                )
+            )
+
         case .save(let stageURL):
             let stage = try stage(for: stageURL, loadPolicy: .loadAll)
             stage.Save()
@@ -2747,6 +2771,19 @@ private extension OpenUSDStageRuntime {
         guard prim.IsValid() else { return nil }
         let attr = prim.GetAttribute(TfToken(std.string(query.attributeName)))
         guard attr.IsValid() else { return nil }
+
+        let typeName = String(attr.GetTypeName().GetAsToken().GetString())
+        if typeName == "asset" {
+            var assetPath = SdfAssetPath()
+            guard attr.Get(&assetPath, UsdTimeCode.Default()) else { return nil }
+            let authored = stableOwnedString(describing: assetPath.GetAssetPath())
+            if authored.isEmpty {
+                let resolved = stableOwnedString(describing: assetPath.GetResolvedPath())
+                return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
+            }
+            return .assetPath(USDAssetPath(authored))
+        }
+
         var vtValue = VtValue()
         guard attr.Get(&vtValue, UsdTimeCode.Default()) else { return nil }
         return convertVtValueToUSDValue(vtValue)

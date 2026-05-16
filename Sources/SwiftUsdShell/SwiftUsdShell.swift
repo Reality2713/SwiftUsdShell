@@ -1083,6 +1083,21 @@ public enum USDSparseAttributeOpinion: Hashable, Sendable, Codable {
     case declare
 }
 
+/// A batch edit that sets the asset-path value on a single attribute of a
+/// prim. Used to rewrite texture paths after plugin conversion or to repair
+/// broken asset references.
+public struct USDAssetPathEdit: Hashable, Sendable, Codable {
+    public var primPath: USDPath
+    public var attributeName: USDToken
+    public var assetPath: String
+
+    public init(primPath: USDPath, attributeName: USDToken, assetPath: String) {
+        self.primPath = primPath
+        self.attributeName = attributeName
+        self.assetPath = assetPath
+    }
+}
+
 /// A single attribute override within a sparse USD layer.
 public struct USDSparseAttributeOverride: Hashable, Sendable, Codable {
     /// Full attribute name including namespace prefix (e.g. "inputs:diffuseColor").
@@ -1677,6 +1692,9 @@ public enum USDEditRequest: Hashable, Sendable, Codable {
     case blockAttribute(stageURL: USDStageURL, primPath: USDPath, attributeName: USDToken)
     /// Set the active state of a prim (true = active, false = inactive).
     case setActive(stageURL: USDStageURL, primPath: USDPath, active: Bool)
+    /// Batch-set asset-path values on attributes across prims.
+    /// Opens the stage once, applies all edits, and saves.
+    case setAssetPaths(stageURL: USDStageURL, edits: [USDAssetPathEdit])
     case save(stageURL: USDStageURL)
 }
 
