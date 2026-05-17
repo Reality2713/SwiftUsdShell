@@ -1034,7 +1034,7 @@ public final class OpenUSDStageRuntime: Sendable {
             &hintValue
         ) else { return nil }
         let radToDeg = 180.0 / Double.pi
-        if hintValue.IsHolding(GfVec3f.self) {
+        if hintValue.IsHolding(T: GfVec3f.self) {
             let v = hintValue.Get() as GfVec3f
             return SIMD3<Double>(
                 Double(v[0]) * radToDeg,
@@ -1042,11 +1042,11 @@ public final class OpenUSDStageRuntime: Sendable {
                 Double(v[2]) * radToDeg
             )
         }
-        if hintValue.IsHolding(GfVec3d.self) {
+        if hintValue.IsHolding(T: GfVec3d.self) {
             let v = hintValue.Get() as GfVec3d
             return SIMD3<Double>(v[0] * radToDeg, v[1] * radToDeg, v[2] * radToDeg)
         }
-        if hintValue.IsHolding(GfVec3h.self) {
+        if hintValue.IsHolding(T: GfVec3h.self) {
             let v = hintValue.Get() as GfVec3h
             return SIMD3<Double>(
                 Double(Float(v[0])) * radToDeg,
@@ -3763,7 +3763,8 @@ private func authorNormalMapDefaults(
                 false
             )
             if Bool(newSpec) {
-                _ = newSpec.pointee.SetDefaultValue(VtValue(TfToken(std.string("raw"))))
+                var mutableSpec = newSpec.pointee
+                _ = mutableSpec.SetDefaultValue(VtValue(TfToken(std.string("raw"))))
                 authoredAny = true
             }
         }
@@ -3777,7 +3778,8 @@ private func authorNormalMapDefaults(
                 false
             )
             if Bool(newSpec) {
-                _ = newSpec.pointee.SetDefaultValue(VtValue(pxr.GfVec4f(-1, -1, -1, 0)))
+                var mutableSpec = newSpec.pointee
+                _ = mutableSpec.SetDefaultValue(VtValue(pxr.GfVec4f(-1, -1, -1, 0)))
                 authoredAny = true
             }
         }
@@ -3791,7 +3793,8 @@ private func authorNormalMapDefaults(
                 false
             )
             if Bool(newSpec) {
-                _ = newSpec.pointee.SetDefaultValue(VtValue(pxr.GfVec4f(2, 2, 2, 1)))
+                var mutableSpec = newSpec.pointee
+                _ = mutableSpec.SetDefaultValue(VtValue(pxr.GfVec4f(2, 2, 2, 1)))
                 authoredAny = true
             }
         }
@@ -3801,7 +3804,7 @@ private func authorNormalMapDefaults(
         }
     }
 
-    for child in primSpec.GetNameChildren() {
+    forEachNameChild(primSpec) { child in
         authorNormalMapDefaults(
             primSpec: child,
             normalizedShaderCount: &normalizedShaderCount
@@ -4116,7 +4119,7 @@ private func collectShaderInputTypeRewrites(
         }
     }
 
-    for child in primSpec.GetNameChildren() {
+    forEachNameChild(primSpec) { child in
         collectShaderInputTypeRewrites(
             primSpec: child,
             inputAttrName: inputAttrName,
@@ -4125,6 +4128,19 @@ private func collectShaderInputTypeRewrites(
             shaderIdentifierPrefix: shaderIdentifierPrefix,
             rewrites: &rewrites
         )
+    }
+}
+
+private func forEachNameChild(
+    _ primSpec: SdfPrimSpec,
+    _ body: (SdfPrimSpecHandle) -> Void
+) {
+    let children = primSpec.GetNameChildren()
+    var iterator = children.__beginUnsafe()
+    let end = children.__endUnsafe()
+    while iterator != end {
+        body(iterator.pointee)
+        iterator = iterator.successor()
     }
 }
 
@@ -4231,35 +4247,35 @@ private func shaderInputBaseName(_ inputName: String) -> String {
 }
 
 private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
-    if value.IsHolding(Bool.self) {
+    if value.IsHolding(T: Bool.self) {
         return .bool(value.Get() as Bool)
     }
 
-    if value.IsHolding(Double.self) {
+    if value.IsHolding(T: Double.self) {
         return .double(value.Get() as Double)
     }
-    if value.IsHolding(Float.self) {
+    if value.IsHolding(T: Float.self) {
         return .double(Double(value.Get() as Float))
     }
 
-    if value.IsHolding(Int.self) {
+    if value.IsHolding(T: Int.self) {
         return .int(Int64(value.Get() as Int))
     }
-    if value.IsHolding(Int64.self) {
+    if value.IsHolding(T: Int64.self) {
         return .int(value.Get() as Int64)
     }
-    if value.IsHolding(Int32.self) {
+    if value.IsHolding(T: Int32.self) {
         return .int(Int64(value.Get() as Int32))
     }
 
-    if value.IsHolding(TfToken.self) {
+    if value.IsHolding(T: TfToken.self) {
         let token = value.Get() as TfToken
         return .token(USDToken(String(token.GetString())))
     }
-    if value.IsHolding(std.string.self) {
+    if value.IsHolding(T: std.string.self) {
         return .string(String(value.Get() as std.string))
     }
-    if value.IsHolding(SdfAssetPath.self) {
+    if value.IsHolding(T: SdfAssetPath.self) {
         let assetPath = value.Get() as SdfAssetPath
         let authored = String(assetPath.GetAssetPath())
         if authored.isEmpty {
@@ -4269,41 +4285,41 @@ private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
         return .assetPath(USDAssetPath(authored))
     }
 
-    if value.IsHolding(GfVec2d.self) {
+    if value.IsHolding(T: GfVec2d.self) {
         let v = value.Get() as GfVec2d
         return .vector2(USDVector2(x: v[0], y: v[1]))
     }
-    if value.IsHolding(GfVec2f.self) {
+    if value.IsHolding(T: GfVec2f.self) {
         let v = value.Get() as GfVec2f
         return .vector2(USDVector2(x: Double(v[0]), y: Double(v[1])))
     }
-    if value.IsHolding(GfVec2i.self) {
+    if value.IsHolding(T: GfVec2i.self) {
         let v = value.Get() as GfVec2i
         return .vector2(USDVector2(x: Double(v[0]), y: Double(v[1])))
     }
 
-    if value.IsHolding(GfVec3d.self) {
+    if value.IsHolding(T: GfVec3d.self) {
         let v = value.Get() as GfVec3d
         return .vector3(USDVector3(x: v[0], y: v[1], z: v[2]))
     }
-    if value.IsHolding(GfVec3f.self) {
+    if value.IsHolding(T: GfVec3f.self) {
         let v = value.Get() as GfVec3f
         return .vector3(USDVector3(x: Double(v[0]), y: Double(v[1]), z: Double(v[2])))
     }
-    if value.IsHolding(GfVec3i.self) {
+    if value.IsHolding(T: GfVec3i.self) {
         let v = value.Get() as GfVec3i
         return .vector3(USDVector3(x: Double(v[0]), y: Double(v[1]), z: Double(v[2])))
     }
 
-    if value.IsHolding(GfVec4d.self) {
+    if value.IsHolding(T: GfVec4d.self) {
         let v = value.Get() as GfVec4d
         return .vector4(USDVector4(x: v[0], y: v[1], z: v[2], w: v[3]))
     }
-    if value.IsHolding(GfVec4f.self) {
+    if value.IsHolding(T: GfVec4f.self) {
         let v = value.Get() as GfVec4f
         return .vector4(USDVector4(x: Double(v[0]), y: Double(v[1]), z: Double(v[2]), w: Double(v[3])))
     }
-    if value.IsHolding(GfVec4i.self) {
+    if value.IsHolding(T: GfVec4i.self) {
         let v = value.Get() as GfVec4i
         return .vector4(USDVector4(x: Double(v[0]), y: Double(v[1]), z: Double(v[2]), w: Double(v[3])))
     }
