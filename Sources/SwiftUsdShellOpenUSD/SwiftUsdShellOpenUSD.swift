@@ -1123,9 +1123,53 @@ public final class OpenUSDStageRuntime: Sendable {
     ) throws -> [USDReference] {
         let prim = try openAndGetPrim(stage: stage, primPath: primPath)
         guard prim.HasAuthoredReferences() else { return [] }
-        var refsValue = VtValue()
-        guard prim.GetMetadata(TfToken("references"), &refsValue) else { return [] }
-        return parseReferencesFromMetadata(String(describing: refsValue))
+        return typedAuthoredReferences(on: prim).map { typed in
+            USDReference(assetPath: typed.assetPath, primPath: typed.primPath)
+        }
+    }
+
+    /// Typed authored reference, preserving the authoring `SdfPrimSpec` and
+    /// the original `SdfReference` so we can re-issue exact list-op edits.
+    private struct AuthoredReference {
+        let assetPath: String
+        let primPath: String?
+        let layerOffsetStart: Double
+        let layerOffsetScale: Double
+        /// Original `SdfReference` value, retained for typed list-op deletion.
+        let sdfReference: SdfReference
+    }
+
+    /// Walks `UsdPrim.GetPrimStack()` and reads each authoring `SdfPrimSpec`'s
+    /// reference list-op via `SdfPrimSpec.GetReferenceList()`. Preserves
+    /// authoring-layer ownership, list-op ordering, prim path targets, and
+    /// layer offsets without parsing stringified `VtValue` debug dumps.
+    private func typedAuthoredReferences(on prim: UsdPrim) -> [AuthoredReference] {
+        var items: [AuthoredReference] = []
+        var seen = Set<String>()
+        for specHandle in prim.GetPrimStack() {
+            let primSpec = specHandle.pointee
+            let refList = primSpec.GetReferenceList()
+            // Prefer added-or-explicit so we cover both the modern prepend/append
+            // case and explicit-list authoring without re-emitting deletions.
+            let sdfRefs = refList.GetAddedOrExplicitItems()
+            for index in 0..<sdfRefs.size() {
+                let sdfRef = sdfRefs[index]
+                let assetPath = stableOwnedString(describing: sdfRef.GetAssetPath())
+                let primPathStr = stableOwnedString(describing: sdfRef.GetPrimPath().GetAsString())
+                let normalizedPrimPath: String? = primPathStr.isEmpty ? nil : primPathStr
+                let offset = sdfRef.GetLayerOffset()
+                let key = "\(assetPath)|\(normalizedPrimPath ?? "")"
+                guard seen.insert(key).inserted else { continue }
+                items.append(AuthoredReference(
+                    assetPath: assetPath,
+                    primPath: normalizedPrimPath,
+                    layerOffsetStart: offset.GetOffset(),
+                    layerOffsetScale: offset.GetScale(),
+                    sdfReference: sdfRef
+                ))
+            }
+        }
+        return items
     }
 
     public func addReference(
@@ -1176,25 +1220,31 @@ public final class OpenUSDStageRuntime: Sendable {
             throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
         }
 
-        let existing = (try? primReferences(stage: stage, primPath: primPath)) ?? []
+        // Locate the exact authored `SdfReference` via the typed prim stack so
+        // we can pass it back through `UsdReferences.RemoveReference` and let
+        // OpenUSD perform the typed list-op deletion. This preserves the
+        // list-op (prepend/append/explicit) and the other authored entries —
+        // we never rebuild the list, so layer offsets and ordering on
+        // surviving references are untouched.
+        let authored = typedAuthoredReferences(on: prim)
+        let matches = authored.filter { item in
+            item.assetPath == reference.assetPath
+                && (item.primPath ?? "") == (reference.primPath ?? "")
+        }
         let ok = USDOverlay.withUsdEditContext(deref, deref.GetEditTarget()) {
             var refs = prim.GetReferences()
-            _ = refs.ClearReferences()
-            for item in existing {
-                guard item.assetPath != reference.assetPath
-                    || (item.primPath ?? "") != (reference.primPath ?? "") else { continue }
-                let sdfPath = if let pp = item.primPath, !pp.isEmpty {
-                    SdfPath(std.string(pp))
-                } else { SdfPath() }
-                let sdfRef = SdfReference(
-                    std.string(item.assetPath),
-                    sdfPath,
-                    SdfLayerOffset(0.0, 1.0),
-                    VtDictionary()
-                )
-                _ = refs.AddReference(sdfRef, pxr.UsdListPosition.UsdListPositionBackOfPrependList)
+            if matches.isEmpty {
+                // Nothing authored matches; surface no-op as failure so callers
+                // can distinguish from a successful canonical deletion.
+                return false
             }
-            return true
+            var allOk = true
+            for match in matches {
+                if !refs.RemoveReference(match.sdfReference) {
+                    allOk = false
+                }
+            }
+            return allOk
         }
         guard ok else {
             throw SwiftUsdShellError.referenceEditFailed(
@@ -1203,40 +1253,6 @@ public final class OpenUSDStageRuntime: Sendable {
             )
         }
         USDOverlay.Dereference(deref.GetRootLayer()).Save(false)
-    }
-
-    /// Parse the raw string representation of a references metadata VtValue
-    /// into typed `USDReference` values.
-    private func parseReferencesFromMetadata(_ raw: String) -> [USDReference] {
-        var items: [USDReference] = []
-        var index = raw.startIndex
-        while let atStart = raw[index...].firstIndex(of: "@") {
-            let assetStart = raw.index(after: atStart)
-            guard let atEnd = raw[assetStart...].firstIndex(of: "@") else { break }
-            let assetPath = String(raw[assetStart..<atEnd])
-            var next = raw.index(after: atEnd)
-            while next < raw.endIndex, raw[next].isWhitespace {
-                next = raw.index(after: next)
-            }
-            var primPath: String?
-            if next < raw.endIndex, raw[next] == "<" {
-                let primStart = raw.index(after: next)
-                if let primEnd = raw[primStart...].firstIndex(of: ">") {
-                    let parsed = String(raw[primStart..<primEnd])
-                    primPath = parsed.isEmpty ? nil : parsed
-                    next = raw.index(after: primEnd)
-                }
-            }
-            if !assetPath.isEmpty {
-                items.append(.init(assetPath: assetPath, primPath: primPath))
-            }
-            index = next
-        }
-        var seen = Set<String>()
-        return items.filter { ref in
-            let key = "\(ref.assetPath)|\(ref.primPath ?? "")"
-            return seen.insert(key).inserted
-        }
     }
 
     // MARK: - Session layer / packaging
@@ -1487,12 +1503,10 @@ public final class OpenUSDStageRuntime: Sendable {
         let dir = stage.url.deletingLastPathComponent()
         for prim in pxrStage.Traverse().swiftSequence {
             guard prim.IsValid(), prim.HasAuthoredReferences() else { continue }
-            var refsValue = VtValue()
-            guard prim.GetMetadata(TfToken("references"), &refsValue) else { continue }
-            let raw = String(describing: refsValue)
-            for ref in parseReferencesFromMetadata(raw) {
+            for ref in typedAuthoredReferences(on: prim) {
                 let key = ref.assetPath
                 guard seen.insert(key).inserted else { continue }
+                guard !ref.assetPath.isEmpty else { continue }
                 let resolved = dir.appendingPathComponent(ref.assetPath)
                 if !fileManager.fileExists(atPath: resolved.path) {
                     unresolved.append(ref.assetPath)
@@ -2673,26 +2687,38 @@ private extension OpenUSDStageRuntime {
         var overrides: [USDSparseOverride] = []
         var warnings: [String] = []
 
+        let missingBasename = (assetPath as NSString).lastPathComponent
         for prim in stage.Traverse().swiftSequence {
             guard prim.IsValid() else { continue }
             guard prim.HasAuthoredReferences() else { continue }
             let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
-            var refsValue = VtValue()
-            guard prim.GetMetadata(TfToken("references"), &refsValue) else { continue }
-            let hasMatching = parseReferencesFromMetadata(String(describing: refsValue)).contains { ref in
-                ref.assetPath.contains(assetPath) || assetPath.contains(ref.assetPath)
+            let authored = typedAuthoredReferences(on: prim)
+            let matchingAssetPaths: [String] = authored.compactMap { ref in
+                guard !ref.assetPath.isEmpty else { return nil }
+                if ref.assetPath == assetPath { return ref.assetPath }
+                if !missingBasename.isEmpty {
+                    let refBasename = (ref.assetPath as NSString).lastPathComponent
+                    if refBasename == missingBasename { return ref.assetPath }
+                }
+                return nil
             }
-            guard hasMatching else { continue }
+            guard !matchingAssetPaths.isEmpty else { continue }
 
-            let escapedPath = assetPath
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"")
+            // Emit one typed `delete` list-op opinion per distinct matching
+            // authored asset path. Using the authored value ensures the
+            // sparse override targets the exact `SdfReference` already on
+            // the prim instead of a heuristic substring guess.
+            var seenAssets = Set<String>()
+            let deleteItems: [USDListOpItem] = matchingAssetPaths.compactMap { authoredAsset in
+                guard seenAssets.insert(authoredAsset).inserted else { return nil }
+                return .asset(USDPath(authoredAsset))
+            }
             overrides.append(USDSparseOverride(
                 primPath: USDPath(primPath),
                 metadata: [
                     USDSparseMetadata(
                         key: .references,
-                        opinion: .delete([.asset(USDPath(escapedPath))])
+                        opinion: .delete(deleteItems)
                     )
                 ]
             ))
@@ -2703,6 +2729,232 @@ private extension OpenUSDStageRuntime {
 
         return (
             changedPrimPaths: overrides.map(\.primPath.rawValue),
+            warnings: warnings
+        )
+    }
+
+    /// Builds typed sparse overrides that remove every composition-arc
+    /// `references` opinion targeting the supplied missing asset path, plus
+    /// every authored asset/string/token attribute value that resolves to
+    /// the same missing path. The result is written as a single sparse
+    /// override layer with no source-stage content copied.
+    ///
+    /// This is the composed replacement for USDTools `cleanupReferences`,
+    /// split internally into two typed passes:
+    /// - composition reference list-op deletion via typed `SdfReference`
+    /// - authored attribute clearing via typed `SdfValueTypeName` dispatch
+    public func cleanupMissingAssetDependencies(
+        stageURL: USDStageURL,
+        missingFilePath: String,
+        outputURL: USDStageURL
+    ) throws -> (changedPrimPaths: [String], clearedAttributeCount: Int, warnings: [String]) {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        var primOverrides: [USDPath: USDSparseOverride] = [:]
+        var orderedPaths: [USDPath] = []
+        var warnings: [String] = []
+        var clearedCount = 0
+        let missingBasename = (missingFilePath as NSString).lastPathComponent
+
+        func matches(_ candidate: String) -> Bool {
+            guard !candidate.isEmpty else { return false }
+            if candidate == missingFilePath { return true }
+            if candidate.hasSuffix(missingFilePath) { return true }
+            if !missingBasename.isEmpty {
+                let candidateBasename = (candidate as NSString).lastPathComponent
+                if candidateBasename == missingBasename { return true }
+            }
+            return false
+        }
+
+        func merge(
+            primPath: USDPath,
+            metadata: [USDSparseMetadata] = [],
+            attributes: [USDSparseAttributeOverride] = []
+        ) {
+            if var existing = primOverrides[primPath] {
+                existing.metadata.append(contentsOf: metadata)
+                existing.attributes.append(contentsOf: attributes)
+                primOverrides[primPath] = existing
+            } else {
+                primOverrides[primPath] = USDSparseOverride(
+                    primPath: primPath,
+                    metadata: metadata,
+                    attributes: attributes
+                )
+                orderedPaths.append(primPath)
+            }
+        }
+
+        for prim in stage.Traverse().swiftSequence {
+            guard prim.IsValid() else { continue }
+            let primPathString = stableOwnedString(describing: prim.GetPath().GetAsString())
+            let primPath = USDPath(primPathString)
+
+            // Pass 1: composition references via typed SdfReference walk.
+            if prim.HasAuthoredReferences() {
+                let authored = typedAuthoredReferences(on: prim)
+                var seenAssets = Set<String>()
+                let deleteItems: [USDListOpItem] = authored.compactMap { ref in
+                    guard !ref.assetPath.isEmpty, matches(ref.assetPath) else { return nil }
+                    guard seenAssets.insert(ref.assetPath).inserted else { return nil }
+                    return .asset(USDPath(ref.assetPath))
+                }
+                if !deleteItems.isEmpty {
+                    merge(
+                        primPath: primPath,
+                        metadata: [USDSparseMetadata(key: .references, opinion: .delete(deleteItems))]
+                    )
+                }
+            }
+
+            // Pass 2: authored asset / string / token attribute clearing.
+            var attrOverrides: [USDSparseAttributeOverride] = []
+            for attr in prim.GetAttributes() {
+                guard attr.IsAuthored() else { continue }
+                let typeName = attr.GetTypeName()
+                let attrName = stableOwnedString(describing: attr.GetName().GetString())
+                if typeName == SdfValueTypeName.Asset {
+                    var assetValue = SdfAssetPath()
+                    guard attr.Get(&assetValue, UsdTimeCode.Default()) else { continue }
+                    let authored = stableOwnedString(describing: assetValue.GetAssetPath())
+                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath())
+                    guard matches(authored) || matches(resolved) else { continue }
+                    attrOverrides.append(USDSparseAttributeOverride(
+                        name: attrName,
+                        opinion: .value(.assetPath(USDAssetPath(""))),
+                        usdTypeName: "asset"
+                    ))
+                    clearedCount += 1
+                } else if typeName == SdfValueTypeName.String {
+                    var value = std.string()
+                    guard attr.Get(&value, UsdTimeCode.Default()) else { continue }
+                    let authored = stableOwnedString(describing: value)
+                    guard matches(authored) else { continue }
+                    attrOverrides.append(USDSparseAttributeOverride(
+                        name: attrName,
+                        opinion: .value(.string("")),
+                        usdTypeName: "string"
+                    ))
+                    clearedCount += 1
+                } else if typeName == SdfValueTypeName.Token {
+                    var token = TfToken()
+                    guard attr.Get(&token, UsdTimeCode.Default()) else { continue }
+                    let authored = stableOwnedString(describing: token.GetString())
+                    guard matches(authored) else { continue }
+                    attrOverrides.append(USDSparseAttributeOverride(
+                        name: attrName,
+                        opinion: .value(.token(USDToken(""))),
+                        usdTypeName: "token"
+                    ))
+                    clearedCount += 1
+                }
+            }
+            if !attrOverrides.isEmpty {
+                merge(primPath: primPath, attributes: attrOverrides)
+            }
+        }
+
+        let overrides = orderedPaths.compactMap { primOverrides[$0] }
+        let request = USDSparseLayerRequest(overrides: overrides)
+        try writeSparseLayer(request: request, outputURL: outputURL)
+
+        return (
+            changedPrimPaths: overrides.map(\.primPath.rawValue),
+            clearedAttributeCount: clearedCount,
+            warnings: warnings
+        )
+    }
+
+    /// Clears authored asset / string / token attribute values that point at
+    /// a missing file path, by writing a sparse override layer with the
+    /// matching attributes cleared to an empty typed value.
+    ///
+    /// This is the attribute-side companion to ``removeAssetReferences``:
+    /// the former removes composition-arc `references` list-op opinions; this
+    /// removes scene-referenced texture/file dependencies authored as
+    /// attribute values. No stringified `VtValue` parsing is used — the
+    /// attribute's typed `SdfValueTypeName` and the typed authored value
+    /// (`SdfAssetPath.GetAssetPath()`, `std.string`, `TfToken.GetString()`)
+    /// drive both the detection and the cleared replacement.
+    public func cleanupReferencingAttributes(
+        stageURL: USDStageURL,
+        missingFilePath: String,
+        outputURL: USDStageURL
+    ) throws -> (changedPrimPaths: [String], clearedAttributeCount: Int, warnings: [String]) {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        var overrides: [USDSparseOverride] = []
+        var warnings: [String] = []
+        var clearedCount = 0
+        let missingBasename = (missingFilePath as NSString).lastPathComponent
+
+        func matches(_ candidate: String) -> Bool {
+            guard !candidate.isEmpty else { return false }
+            if candidate == missingFilePath { return true }
+            if candidate.hasSuffix(missingFilePath) { return true }
+            if !missingBasename.isEmpty {
+                let candidateBasename = (candidate as NSString).lastPathComponent
+                if candidateBasename == missingBasename { return true }
+            }
+            return false
+        }
+
+        for prim in stage.Traverse().swiftSequence {
+            guard prim.IsValid() else { continue }
+            let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
+            var attrOverrides: [USDSparseAttributeOverride] = []
+            for attr in prim.GetAttributes() {
+                guard attr.IsAuthored() else { continue }
+                let typeName = attr.GetTypeName()
+                let attrName = stableOwnedString(describing: attr.GetName().GetString())
+                if typeName == SdfValueTypeName.Asset {
+                    var assetValue = SdfAssetPath()
+                    guard attr.Get(&assetValue, UsdTimeCode.Default()) else { continue }
+                    let authored = stableOwnedString(describing: assetValue.GetAssetPath())
+                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath())
+                    guard matches(authored) || matches(resolved) else { continue }
+                    attrOverrides.append(USDSparseAttributeOverride(
+                        name: attrName,
+                        opinion: .value(.assetPath(USDAssetPath(""))),
+                        usdTypeName: "asset"
+                    ))
+                    clearedCount += 1
+                } else if typeName == SdfValueTypeName.String {
+                    var value = std.string()
+                    guard attr.Get(&value, UsdTimeCode.Default()) else { continue }
+                    let authored = stableOwnedString(describing: value)
+                    guard matches(authored) else { continue }
+                    attrOverrides.append(USDSparseAttributeOverride(
+                        name: attrName,
+                        opinion: .value(.string("")),
+                        usdTypeName: "string"
+                    ))
+                    clearedCount += 1
+                } else if typeName == SdfValueTypeName.Token {
+                    var token = TfToken()
+                    guard attr.Get(&token, UsdTimeCode.Default()) else { continue }
+                    let authored = stableOwnedString(describing: token.GetString())
+                    guard matches(authored) else { continue }
+                    attrOverrides.append(USDSparseAttributeOverride(
+                        name: attrName,
+                        opinion: .value(.token(USDToken(""))),
+                        usdTypeName: "token"
+                    ))
+                    clearedCount += 1
+                }
+            }
+            guard !attrOverrides.isEmpty else { continue }
+            overrides.append(USDSparseOverride(
+                primPath: USDPath(primPath),
+                attributes: attrOverrides
+            ))
+        }
+
+        let request = USDSparseLayerRequest(overrides: overrides)
+        try writeSparseLayer(request: request, outputURL: outputURL)
+
+        return (
+            changedPrimPaths: overrides.map(\.primPath.rawValue),
+            clearedAttributeCount: clearedCount,
             warnings: warnings
         )
     }
