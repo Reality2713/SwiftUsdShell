@@ -2753,9 +2753,10 @@ private extension OpenUSDStageRuntime {
 
         var changedPrimPaths: [String] = []
         var warnings: [String] = []
+        var overrides: [USDSparseOverride] = []
 
         for rewrite in request.rewrites {
-            var prim = stage.GetPrimAtPath(SdfPath(std.string(rewrite.primPath)))
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(rewrite.primPath)))
             guard prim.IsValid() else {
                 warnings.append("Prim not found at '\(rewrite.primPath)'")
                 continue
@@ -2773,42 +2774,34 @@ private extension OpenUSDStageRuntime {
                 continue
             }
 
-            // Read the authored default value before removing the property.
             let sourceTypeName = attr.GetTypeName()
-            var value = VtValue()
-            let hasValue = attr.Get(&value, UsdTimeCode.Default())
-            let rewrittenValue = rewrittenAttributeValue(
+            let rewrittenValue = rewrittenAttributeUSDValue(
                 from: attr,
                 sourceTypeName: sourceTypeName,
                 targetTypeName: targetTypeName
             )
-
-            // Remove old property and create a new one with the target type.
-            let propertyToken = TfToken(std.string(rewrite.attributeName))
-            _ = prim.RemoveProperty(propertyToken)
-
-            let newAttr = prim.CreateAttribute(
-                propertyToken,
-                targetTypeName,
-                false,
-                SdfVariability.SdfVariabilityVarying
+            let opinion: USDSparseAttributeOpinion = rewrittenValue.map {
+                .value($0)
+            } ?? .declare
+            let override = USDSparseOverride(
+                primPath: USDPath(rewrite.primPath),
+                attributes: [
+                    USDSparseAttributeOverride(
+                        name: rewrite.attributeName,
+                        opinion: opinion,
+                        usdTypeName: rewrite.targetTypeName
+                    )
+                ]
             )
-
-            // Restore the authored value on the newly-typed attribute.
-            if let rewrittenValue {
-                newAttr.Set(rewrittenValue, UsdTimeCode.Default())
-            } else if hasValue {
-                newAttr.Set(value, UsdTimeCode.Default())
-            }
+            overrides.append(override)
 
             changedPrimPaths.append(rewrite.primPath)
         }
 
-        // Export the modified root layer to the output URL.
-        let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
-        guard rootLayer.Export(std.string(request.outputURL.url.path), std.string(), SdfLayer.FileFormatArguments()) else {
-            throw SwiftUsdShellError.invalidValue("Failed to export layer to \(request.outputURL.url.lastPathComponent)")
-        }
+        try writeSparseLayer(
+            request: USDSparseLayerRequest(overrides: overrides),
+            outputURL: request.outputURL
+        )
 
         return USDAttributeTypeRewriteResult(
             changedPrimPaths: changedPrimPaths,
@@ -3495,24 +3488,26 @@ private func compositionArc(
     )
 }
 
-private func rewrittenAttributeValue(
+private func rewrittenAttributeUSDValue(
     from attr: UsdAttribute,
     sourceTypeName: SdfValueTypeName,
     targetTypeName: SdfValueTypeName
-) -> VtValue? {
+) -> USDValue? {
     if sourceTypeName == SdfValueTypeName.Token, targetTypeName == SdfValueTypeName.String {
         var token = TfToken()
         guard attr.Get(&token, UsdTimeCode.Default()) else { return nil }
-        return VtValue(token.GetString())
+        return .string(stableOwnedString(describing: token.GetString()))
     }
 
     if sourceTypeName == SdfValueTypeName.String, targetTypeName == SdfValueTypeName.Token {
         var stringValue = std.string()
         guard attr.Get(&stringValue, UsdTimeCode.Default()) else { return nil }
-        return VtValue(TfToken(stringValue))
+        return .token(USDToken(stableOwnedString(describing: stringValue)))
     }
 
-    return nil
+    var value = VtValue()
+    guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+    return convertVtValueToUSDValue(value)
 }
 
 private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
