@@ -4042,3 +4042,87 @@ private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
 private func stableOwnedString<T>(describing value: T) -> String {
     String(describing: value)
 }
+
+// MARK: - Canonical material binding cleanup and append
+
+public extension OpenUSDStageRuntime {
+    /// Returns the names of authored properties on `primPath` that are invalid
+    /// `material:binding` opinions (i.e. authored as attributes rather than
+    /// relationships).
+    ///
+    /// Canonical OpenUSD: enumerates `UsdPrim.GetAttributes()` and matches the
+    /// exact authored name `material:binding` or any namespaced descendant
+    /// `material:binding:*`. Valid material bindings are relationships, never
+    /// attributes; anything matching this filter is an authoring mistake and
+    /// safe to delete. This restores parity with the legacy USDTools cleanup
+    /// which deleted both `material:binding` and `material:binding:*`
+    /// attributes.
+    func discoverInvalidMaterialBindingPropertyNames(
+        stageURL: USDStageURL,
+        primPath: USDPath
+    ) throws -> [String] {
+        let stagePtr = UsdStage.Open(
+            std.string(stageURL.url.path),
+            UsdStage.InitialLoadSet.LoadNone
+        )
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stageURL, diagnostic: "discover-invalid-binding")
+        }
+        let stage = USDOverlay.Dereference(stagePtr)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        guard prim.IsValid() else { return [] }
+        var names: [String] = []
+        for attr in prim.GetAttributes() {
+            let raw = stableOwnedString(describing: attr.GetName().GetString())
+            if raw == "material:binding" || raw.hasPrefix("material:binding:") {
+                names.append(raw)
+            }
+        }
+        return names.sorted()
+    }
+
+    /// Appends a canonical `UsdShadeMaterialBindingAPI.Bind` opinion onto an
+    /// existing exported sparse layer file at `layerURL`.
+    ///
+    /// This is intended for compositional flows (for example OpenUSDKit
+    /// material authoring) where a sparse layer that defines a `Material` has
+    /// already been written and the caller now needs to author the binding
+    /// relationship using the canonical schema API instead of hand-authoring
+    /// raw `material:binding` sparse relationships. The binding
+    /// relationship name, purpose, and binding-strength metadata semantics are
+    /// owned by OpenUSD's `UsdShadeMaterialBindingAPI`.
+    func appendCanonicalMaterialBindingToLayer(
+        layerURL: USDStageURL,
+        primPath: USDPath,
+        materialPath: USDPath,
+        strength: USDMaterialBindingStrength = .fallbackStrength
+    ) throws {
+        let stagePtr = UsdStage.Open(
+            std.string(layerURL.url.path),
+            UsdStage.InitialLoadSet.LoadAll
+        )
+        guard stagePtr._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(layerURL, diagnostic: "append-binding")
+        }
+        let stage = USDOverlay.Dereference(stagePtr)
+        let prim = stage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+        let materialPrim = stage.OverridePrim(SdfPath(std.string(materialPath.rawValue)))
+
+        let bindingAPI = UsdShadeMaterialBindingAPI.Apply(prim)
+        let material = UsdShadeMaterial(materialPrim)
+        let strengthToken = TfToken(
+            std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue)
+        )
+        guard bindingAPI.Bind(material, strengthToken, TfToken("")) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to bind material \(materialPath.rawValue) to \(primPath.rawValue)"
+            )
+        }
+
+        guard stage.Export(std.string(layerURL.url.path), false, SdfLayer.FileFormatArguments()) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Failed to export material binding into \(layerURL.url.lastPathComponent)"
+            )
+        }
+    }
+}
