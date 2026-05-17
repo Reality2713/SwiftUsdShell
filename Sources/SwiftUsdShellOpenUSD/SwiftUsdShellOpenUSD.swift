@@ -10,6 +10,7 @@ typealias pxr = pxrInternal_v0_26_3__pxrReserved__
 typealias UsdStage = pxr.UsdStage
 typealias UsdStageRefPtr = pxr.UsdStageRefPtr
 typealias UsdPrim = pxr.UsdPrim
+typealias UsdPrimRange = pxr.UsdPrimRange
 typealias UsdRelationship = pxr.UsdRelationship
 typealias UsdAttribute = pxr.UsdAttribute
 typealias UsdTimeCode = pxr.UsdTimeCode
@@ -2906,7 +2907,7 @@ private extension OpenUSDStageRuntime {
         let inputAttrToken = TfToken(std.string("inputs:\(inputBaseName)"))
         var rewrites: [USDAttributeTypeRewrite] = []
 
-        for var prim in stage.Traverse().swiftSequence {
+        for var prim in UsdPrimRange.AllPrims(stage.GetPseudoRoot()).swiftSequence {
             let shader = UsdShadeShader(prim)
             let isShaderPrim =
                 shader.GetPrim().IsValid()
