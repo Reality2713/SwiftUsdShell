@@ -2899,7 +2899,8 @@ private extension OpenUSDStageRuntime {
         for var prim in stage.Traverse().swiftSequence {
             let shader = UsdShadeShader(prim)
             guard shader.GetPrim().IsValid() else { continue }
-            guard shaderIdentifier(prim).hasPrefix(query.shaderIdentifierPrefix) else { continue }
+            guard let shaderIdentifier = shaderIdentifier(prim),
+                  shaderIdentifier.hasPrefix(query.shaderIdentifierPrefix) else { continue }
 
             let input = shader.GetInput(inputToken)
             let attr = input.GetAttr()
