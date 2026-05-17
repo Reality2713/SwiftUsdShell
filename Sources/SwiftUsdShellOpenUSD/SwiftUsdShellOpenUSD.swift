@@ -1160,10 +1160,10 @@ public final class OpenUSDStageRuntime: Sendable {
             let sdfRefs = refList.GetAddedOrExplicitItems()
             for index in 0..<sdfRefs.size() {
                 let sdfRef = sdfRefs[index]
-                let assetPath = stableOwnedString(describing: sdfRef.GetAssetPath())
-                let primPathStr = stableOwnedString(describing: sdfRef.GetPrimPath().GetAsString())
+                let assetPath = String(sdfRef.GetAssetPath().pointee)
+                let primPathStr = String(sdfRef.GetPrimPath().pointee.GetAsString())
                 let normalizedPrimPath: String? = primPathStr.isEmpty ? nil : primPathStr
-                let offset = sdfRef.GetLayerOffset()
+                let offset = sdfRef.GetLayerOffset().pointee
                 let key = "\(assetPath)|\(normalizedPrimPath ?? "")"
                 guard seen.insert(key).inserted else { continue }
                 items.append(AuthoredReference(
