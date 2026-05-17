@@ -21,6 +21,10 @@ typealias UsdShadeConnectableAPI = pxr.UsdShadeConnectableAPI
 typealias SdfReference = pxr.SdfReference
 typealias SdfLayerOffset = pxr.SdfLayerOffset
 typealias SdfLayer = pxr.SdfLayer
+typealias SdfPrimSpec = pxr.SdfPrimSpec
+typealias SdfPrimSpecHandle = pxr.SdfPrimSpecHandle
+typealias SdfAttributeSpec = pxr.SdfAttributeSpec
+typealias SdfAttributeSpecHandle = pxr.SdfAttributeSpecHandle
 typealias SdfVariability = pxr.SdfVariability
 typealias VtDictionary = pxr.VtDictionary
 typealias SdfChangeBlock = pxr.SdfChangeBlock
@@ -2829,20 +2833,17 @@ private extension OpenUSDStageRuntime {
         _ request: USDAttributeTypeRewriteRequest
     ) throws -> USDAttributeTypeRewriteResult {
         let stage = try self.stage(for: request.stageURL, loadPolicy: .loadAll)
+        let rootLayerHandle = stage.GetRootLayer()
+        let rootLayer = USDOverlay.Dereference(rootLayerHandle)
 
         var changedPrimPaths: [String] = []
         var warnings: [String] = []
 
         for rewrite in request.rewrites {
-            var prim = stage.GetPrimAtPath(SdfPath(std.string(rewrite.primPath)))
-            guard prim.IsValid() else {
-                warnings.append("Prim not found at '\(rewrite.primPath)'")
-                continue
-            }
-
-            let attr = prim.GetAttribute(TfToken(std.string(rewrite.attributeName)))
-            guard attr.IsValid() else {
-                warnings.append("Attribute '\(rewrite.attributeName)' not found on '\(rewrite.primPath)'")
+            let attrPath = SdfPath(std.string("\(rewrite.primPath).\(rewrite.attributeName)"))
+            let attrSpec = rootLayer.GetAttributeAtPath(attrPath)
+            guard Bool(attrSpec) else {
+                warnings.append("Attribute spec '\(rewrite.attributeName)' not found on '\(rewrite.primPath)'")
                 continue
             }
 
@@ -2851,35 +2852,14 @@ private extension OpenUSDStageRuntime {
                 continue
             }
 
-            let sourceTypeName = attr.GetTypeName()
-            var value = VtValue()
-            let hasValue = attr.Get(&value, UsdTimeCode.Default())
-            let rewrittenValue = rewrittenAttributeValue(
-                from: attr,
-                sourceTypeName: sourceTypeName,
-                targetTypeName: targetTypeName
-            )
-
-            let propertyToken = TfToken(std.string(rewrite.attributeName))
-            _ = prim.RemoveProperty(propertyToken)
-
-            let newAttr = prim.CreateAttribute(
-                propertyToken,
-                targetTypeName,
-                false,
-                SdfVariability.SdfVariabilityVarying
-            )
-
-            if let rewrittenValue {
-                newAttr.Set(rewrittenValue, UsdTimeCode.Default())
-            } else if hasValue {
-                newAttr.Set(value, UsdTimeCode.Default())
+            guard rewriteAttributeSpecType(attrSpec, in: rootLayer, targetTypeName: targetTypeName) else {
+                warnings.append("Failed rewriting attribute spec '\(rewrite.primPath).\(rewrite.attributeName)'")
+                continue
             }
 
             changedPrimPaths.append(rewrite.primPath)
         }
 
-        let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
         guard rootLayer.Export(std.string(request.outputURL.url.path), std.string(), SdfLayer.FileFormatArguments()) else {
             throw SwiftUsdShellError.invalidValue("Failed to export layer to \(request.outputURL.url.lastPathComponent)")
         }
@@ -2904,29 +2884,18 @@ private extension OpenUSDStageRuntime {
         }
 
         let inputBaseName = shaderInputBaseName(query.inputName)
-        let inputAttrToken = TfToken(std.string("inputs:\(inputBaseName)"))
+        let inputAttrName = "inputs:\(inputBaseName)"
         var rewrites: [USDAttributeTypeRewrite] = []
 
-        for var prim in UsdPrimRange.AllPrims(stage.GetPseudoRoot()).swiftSequence {
-            let shader = UsdShadeShader(prim)
-            let isShaderPrim =
-                shader.GetPrim().IsValid()
-                || stableOwnedString(describing: prim.GetTypeName().GetString()) == "Shader"
-            guard isShaderPrim else { continue }
-            guard let shaderIdentifier = shaderIdentifier(prim),
-                  shaderIdentifier.hasPrefix(query.shaderIdentifierPrefix) else { continue }
-
-            let attr = prim.GetAttribute(inputAttrToken)
-            guard attr.IsValid(), attr.GetTypeName() == currentTypeName else { continue }
-
-            rewrites.append(
-                USDAttributeTypeRewrite(
-                    primPath: stableOwnedString(describing: prim.GetPath().GetAsString()),
-                    attributeName: stableOwnedString(describing: attr.GetName().GetString()),
-                    targetTypeName: query.targetTypeName
-                )
-            )
-        }
+        let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
+        collectShaderInputTypeRewrites(
+            primSpec: rootLayer.GetPseudoRoot(),
+            inputAttrName: inputAttrName,
+            currentTypeName: currentTypeName,
+            targetTypeName: query.targetTypeName,
+            shaderIdentifierPrefix: query.shaderIdentifierPrefix,
+            rewrites: &rewrites
+        )
 
         return rewrites
     }
@@ -3646,6 +3615,139 @@ private func rewrittenAttributeValue(
     if sourceTypeName == SdfValueTypeName.String, targetTypeName == SdfValueTypeName.Token {
         var stringValue = std.string()
         guard attr.Get(&stringValue, UsdTimeCode.Default()) else { return nil }
+        return VtValue(TfToken(stringValue))
+    }
+
+    return nil
+}
+
+private func collectShaderInputTypeRewrites(
+    primSpec handle: SdfPrimSpecHandle,
+    inputAttrName: String,
+    currentTypeName: SdfValueTypeName,
+    targetTypeName: String,
+    shaderIdentifierPrefix: String,
+    rewrites: inout [USDAttributeTypeRewrite]
+) {
+    guard Bool(handle) else { return }
+    let primSpec = handle.pointee
+
+    if isShaderPrimSpec(primSpec),
+       let identifier = shaderIdentifier(primSpec),
+       identifier.hasPrefix(shaderIdentifierPrefix) {
+        if let attrSpec = attributeSpec(named: inputAttrName, on: primSpec),
+           attrSpec.GetTypeName() == currentTypeName {
+            rewrites.append(
+                USDAttributeTypeRewrite(
+                    primPath: stableOwnedString(describing: primSpec.GetPath().GetAsString()),
+                    attributeName: inputAttrName,
+                    targetTypeName: targetTypeName
+                )
+            )
+        }
+    }
+
+    for child in primSpec.GetNameChildren() {
+        collectShaderInputTypeRewrites(
+            primSpec: child,
+            inputAttrName: inputAttrName,
+            currentTypeName: currentTypeName,
+            targetTypeName: targetTypeName,
+            shaderIdentifierPrefix: shaderIdentifierPrefix,
+            rewrites: &rewrites
+        )
+    }
+}
+
+private func isShaderPrimSpec(_ primSpec: SdfPrimSpec) -> Bool {
+    stableOwnedString(describing: primSpec.GetTypeName()) == "Shader"
+}
+
+private func attributeSpec(named name: String, on primSpec: SdfPrimSpec) -> SdfAttributeSpec? {
+    for attrSpecHandle in primSpec.GetAttributes() {
+        let attrSpec = attrSpecHandle.pointee
+        if stableOwnedString(describing: attrSpec.GetName()) == name {
+            return attrSpec
+        }
+    }
+    return nil
+}
+
+private func shaderIdentifier(_ primSpec: SdfPrimSpec) -> String? {
+    guard let attr = attributeSpec(named: "info:id", on: primSpec) else { return nil }
+    guard attr.HasDefaultValue() else { return nil }
+    var value = attr.GetDefaultValue()
+
+    if attr.GetTypeName() == SdfValueTypeName.Token {
+        let token = value.Get() as TfToken
+        let raw = stableOwnedString(describing: token.GetString())
+        return raw.isEmpty ? nil : raw
+    }
+
+    if attr.GetTypeName() == SdfValueTypeName.String {
+        let raw = stableOwnedString(describing: value.Get() as std.string)
+        return raw.isEmpty ? nil : raw
+    }
+
+    return nil
+}
+
+private func rewriteAttributeSpecType(
+    _ handle: SdfAttributeSpecHandle,
+    in layer: SdfLayer,
+    targetTypeName: SdfValueTypeName
+) -> Bool {
+    guard Bool(handle) else { return false }
+    let attrSpec = handle.pointee
+    let owner = layer.GetPrimAtPath(attrSpec.GetPath().GetPrimPath())
+    guard Bool(owner) else { return false }
+
+    let sourceTypeName = attrSpec.GetTypeName()
+    let variability = attrSpec.GetVariability()
+    let isCustom = attrSpec.IsCustom()
+    let name = stableOwnedString(describing: attrSpec.GetName())
+    let rewrittenDefault = rewrittenAttributeSpecDefaultValue(
+        attrSpec,
+        sourceTypeName: sourceTypeName,
+        targetTypeName: targetTypeName
+    )
+    let fallbackDefault = attrSpec.HasDefaultValue() ? attrSpec.GetDefaultValue() : nil
+
+    owner.pointee.RemoveProperty(handle)
+
+    let rewritten = SdfAttributeSpec.New(
+        owner,
+        std.string(name),
+        targetTypeName,
+        variability,
+        isCustom
+    )
+    guard Bool(rewritten) else { return false }
+
+    if let rewrittenDefault {
+        return rewritten.pointee.SetDefaultValue(rewrittenDefault)
+    }
+    if let fallbackDefault {
+        return rewritten.pointee.SetDefaultValue(fallbackDefault)
+    }
+    return true
+}
+
+private func rewrittenAttributeSpecDefaultValue(
+    _ attrSpec: SdfAttributeSpec,
+    sourceTypeName: SdfValueTypeName,
+    targetTypeName: SdfValueTypeName
+) -> VtValue? {
+    guard attrSpec.HasDefaultValue() else { return nil }
+    var value = attrSpec.GetDefaultValue()
+
+    if sourceTypeName == SdfValueTypeName.Token, targetTypeName == SdfValueTypeName.String {
+        let token = value.Get() as TfToken
+        return VtValue(token.GetString())
+    }
+
+    if sourceTypeName == SdfValueTypeName.String, targetTypeName == SdfValueTypeName.Token {
+        let stringValue = value.Get() as std.string
         return VtValue(TfToken(stringValue))
     }
 
