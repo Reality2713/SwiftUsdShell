@@ -2774,8 +2774,14 @@ private extension OpenUSDStageRuntime {
             }
 
             // Read the authored default value before removing the property.
+            let sourceTypeName = attr.GetTypeName()
             var value = VtValue()
             let hasValue = attr.Get(&value, UsdTimeCode.Default())
+            let rewrittenValue = rewrittenAttributeValue(
+                from: attr,
+                sourceTypeName: sourceTypeName,
+                targetTypeName: targetTypeName
+            )
 
             // Remove old property and create a new one with the target type.
             let propertyToken = TfToken(std.string(rewrite.attributeName))
@@ -2789,7 +2795,9 @@ private extension OpenUSDStageRuntime {
             )
 
             // Restore the authored value on the newly-typed attribute.
-            if hasValue {
+            if let rewrittenValue {
+                newAttr.Set(rewrittenValue, UsdTimeCode.Default())
+            } else if hasValue {
                 newAttr.Set(value, UsdTimeCode.Default())
             }
 
@@ -3485,6 +3493,26 @@ private func compositionArc(
         ),
         isInternal: assetPath.isEmpty
     )
+}
+
+private func rewrittenAttributeValue(
+    from attr: UsdAttribute,
+    sourceTypeName: SdfValueTypeName,
+    targetTypeName: SdfValueTypeName
+) -> VtValue? {
+    if sourceTypeName == SdfValueTypeName.Token, targetTypeName == SdfValueTypeName.String {
+        var token = TfToken()
+        guard attr.Get(&token, UsdTimeCode.Default()) else { return nil }
+        return VtValue(token.GetString())
+    }
+
+    if sourceTypeName == SdfValueTypeName.String, targetTypeName == SdfValueTypeName.Token {
+        var stringValue = std.string()
+        guard attr.Get(&stringValue, UsdTimeCode.Default()) else { return nil }
+        return VtValue(TfToken(stringValue))
+    }
+
+    return nil
 }
 
 private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
