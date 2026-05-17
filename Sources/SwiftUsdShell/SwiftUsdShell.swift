@@ -1121,6 +1121,34 @@ public struct USDAttributeTypeRewriteResult: Hashable, Sendable, Codable {
     }
 }
 
+/// Query to discover shader inputs whose authored USD type should be rewritten.
+public struct USDShaderInputTypeRewriteQuery: Hashable, Sendable, Codable {
+    /// Stage to inspect.
+    public var stageURL: USDStageURL
+    /// Shader identifier prefix to match, such as `UsdPrimvarReader`.
+    public var shaderIdentifierPrefix: String
+    /// Shader input name. The `inputs:` prefix is accepted but not required.
+    public var inputName: String
+    /// Current authored USD type name that should be rewritten.
+    public var currentTypeName: String
+    /// Target USD type name for returned rewrite specs.
+    public var targetTypeName: String
+
+    public init(
+        stageURL: USDStageURL,
+        shaderIdentifierPrefix: String,
+        inputName: String,
+        currentTypeName: String,
+        targetTypeName: String
+    ) {
+        self.stageURL = stageURL
+        self.shaderIdentifierPrefix = shaderIdentifierPrefix
+        self.inputName = inputName
+        self.currentTypeName = currentTypeName
+        self.targetTypeName = targetTypeName
+    }
+}
+
 /// Query for the first connected source of a shader input.
 public struct USDShaderInputSourceQuery: Hashable, Sendable, Codable {
     /// Stage to inspect.

@@ -2879,6 +2879,44 @@ private extension OpenUSDStageRuntime {
         )
     }
 
+    /// Finds shader inputs whose authored type matches `currentTypeName` and
+    /// returns explicit attribute rewrite specs for them.
+    public func shaderInputTypeRewrites(
+        _ query: USDShaderInputTypeRewriteQuery
+    ) throws -> [USDAttributeTypeRewrite] {
+        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadAll)
+        guard let currentTypeName = sdfValueTypeName(named: query.currentTypeName) else {
+            throw SwiftUsdShellError.invalidValue("Unknown current type name '\(query.currentTypeName)'")
+        }
+        guard sdfValueTypeName(named: query.targetTypeName) != nil else {
+            throw SwiftUsdShellError.invalidValue("Unknown target type name '\(query.targetTypeName)'")
+        }
+
+        let inputBaseName = shaderInputBaseName(query.inputName)
+        let inputToken = TfToken(std.string(inputBaseName))
+        var rewrites: [USDAttributeTypeRewrite] = []
+
+        for var prim in stage.Traverse().swiftSequence {
+            let shader = UsdShadeShader(prim)
+            guard shader.GetPrim().IsValid() else { continue }
+            guard shaderIdentifier(prim).hasPrefix(query.shaderIdentifierPrefix) else { continue }
+
+            let input = shader.GetInput(inputToken)
+            let attr = input.GetAttr()
+            guard attr.IsValid(), attr.GetTypeName() == currentTypeName else { continue }
+
+            rewrites.append(
+                USDAttributeTypeRewrite(
+                    primPath: stableOwnedString(describing: prim.GetPath().GetAsString()),
+                    attributeName: stableOwnedString(describing: attr.GetName().GetString()),
+                    targetTypeName: query.targetTypeName
+                )
+            )
+        }
+
+        return rewrites
+    }
+
     /// Flattens a nested shader by copying the child shader prim spec to a
     /// new sibling path, marks the old child as inactive, and exports a
     /// sparse override layer. Returns the new destination prim path.
@@ -3598,6 +3636,13 @@ private func rewrittenAttributeValue(
     }
 
     return nil
+}
+
+private func shaderInputBaseName(_ inputName: String) -> String {
+    if inputName.hasPrefix("inputs:") {
+        return String(inputName.dropFirst("inputs:".count))
+    }
+    return inputName
 }
 
 private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
