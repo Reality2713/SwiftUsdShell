@@ -40,8 +40,19 @@ typealias SdfAssetPath = pxr.SdfAssetPath
 typealias SdfPathVector = pxr.SdfPathVector
 typealias SdfSpecifier = pxr.SdfSpecifier
 typealias SdfValueTypeName = pxr.SdfValueTypeName
+typealias GfVec2d = pxr.GfVec2d
+typealias GfVec2f = pxr.GfVec2f
+typealias GfVec2i = pxr.GfVec2i
 typealias GfVec3d = pxr.GfVec3d
 typealias GfVec3f = pxr.GfVec3f
+typealias GfVec3h = pxr.GfVec3h
+typealias GfVec3i = pxr.GfVec3i
+typealias GfVec4d = pxr.GfVec4d
+typealias GfVec4f = pxr.GfVec4f
+typealias GfVec4i = pxr.GfVec4i
+typealias GfQuatd = pxr.GfQuatd
+typealias GfQuatf = pxr.GfQuatf
+typealias GfQuath = pxr.GfQuath
 typealias VtValue = pxr.VtValue
 typealias VtIntArray = pxr.VtIntArray
 typealias VtTokenArray = pxr.VtTokenArray
@@ -926,18 +937,18 @@ public final class OpenUSDStageRuntime: Sendable {
     }
 
     private func authoredVector3Op(prim: UsdPrim, prefix: String) -> SIMD3<Double>? {
+        // Canonical OpenUSD: read typed authored vector via attribute typeName
+        // dispatch. We deliberately do not fall back to debug-string parsing —
+        // unsupported xformOp value types must surface as nil so callers route
+        // through the next strategy in `resolveRotationDegrees`.
         let exact = prim.GetAttribute(TfToken(prefix))
-        if exact.IsValid() {
-            var value = VtValue()
-            if exact.Get(&value, UsdTimeCode.Default()), let triple = parseVector3(from: String(describing: value)) {
-                return triple
-            }
+        if exact.IsValid(), let triple = xformVector3Value(exact) {
+            return triple
         }
         for attr in prim.GetAttributes() {
             let name = String(attr.GetName())
             guard name.hasPrefix(prefix) else { continue }
-            var value = VtValue()
-            if attr.Get(&value, UsdTimeCode.Default()), let triple = parseVector3(from: String(describing: value)) {
+            if let triple = xformVector3Value(attr) {
                 return triple
             }
         }
@@ -946,19 +957,53 @@ public final class OpenUSDStageRuntime: Sendable {
 
     private func authoredQuaternionOp(prim: UsdPrim, prefix: String) -> simd_quatd? {
         let exact = prim.GetAttribute(TfToken(prefix))
-        if exact.IsValid() {
-            var value = VtValue()
-            if exact.Get(&value, UsdTimeCode.Default()), let quat = parseQuaternion(from: String(describing: value)) {
-                return quat
-            }
+        if exact.IsValid(), let quat = typedQuaternionValue(exact) {
+            return quat
         }
         for attr in prim.GetAttributes() {
             let name = String(attr.GetName())
             guard name.hasPrefix(prefix) else { continue }
-            var value = VtValue()
-            if attr.Get(&value, UsdTimeCode.Default()), let quat = parseQuaternion(from: String(describing: value)) {
+            if let quat = typedQuaternionValue(attr) {
                 return quat
             }
+        }
+        return nil
+    }
+
+    private func typedQuaternionValue(_ attr: UsdAttribute) -> simd_quatd? {
+        let typeName = attr.GetTypeName()
+        if typeName == SdfValueTypeName.Quatd {
+            var value = GfQuatd()
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            let imag = value.GetImaginary()
+            return simd_quatd(
+                ix: Double(imag[0]),
+                iy: Double(imag[1]),
+                iz: Double(imag[2]),
+                r: Double(value.GetReal())
+            )
+        }
+        if typeName == SdfValueTypeName.Quatf {
+            var value = GfQuatf()
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            let imag = value.GetImaginary()
+            return simd_quatd(
+                ix: Double(imag[0]),
+                iy: Double(imag[1]),
+                iz: Double(imag[2]),
+                r: Double(value.GetReal())
+            )
+        }
+        if typeName == SdfValueTypeName.Quath {
+            var value = GfQuath()
+            guard attr.Get(&value, UsdTimeCode.Default()) else { return nil }
+            let imag = value.GetImaginary()
+            return simd_quatd(
+                ix: Double(Float(imag[0])),
+                iy: Double(Float(imag[1])),
+                iz: Double(Float(imag[2])),
+                r: Double(Float(value.GetReal()))
+            )
         }
         return nil
     }
@@ -968,87 +1013,48 @@ public final class OpenUSDStageRuntime: Sendable {
         let ry = prim.GetAttribute(TfToken("xformOp:rotateY"))
         let rz = prim.GetAttribute(TfToken("xformOp:rotateZ"))
         guard rx.IsValid() || ry.IsValid() || rz.IsValid() else { return nil }
-        var x = 0.0
-        var y = 0.0
-        var z = 0.0
-        if rx.IsValid() {
-            var value = VtValue()
-            if rx.Get(&value, UsdTimeCode.Default()), let scalar = parseScalar(from: String(describing: value)) {
-                x = scalar
-            }
-        }
-        if ry.IsValid() {
-            var value = VtValue()
-            if ry.Get(&value, UsdTimeCode.Default()), let scalar = parseScalar(from: String(describing: value)) {
-                y = scalar
-            }
-        }
-        if rz.IsValid() {
-            var value = VtValue()
-            if rz.Get(&value, UsdTimeCode.Default()), let scalar = parseScalar(from: String(describing: value)) {
-                z = scalar
-            }
-        }
+        // Canonical OpenUSD: read each authored Euler scalar via typed
+        // attribute Get. Unsupported precisions yield 0 for that axis (matches
+        // prior behavior of leaving the component at its initialized zero).
+        let x = rx.IsValid() ? (xformScalarValue(rx) ?? 0.0) : 0.0
+        let y = ry.IsValid() ? (xformScalarValue(ry) ?? 0.0) : 0.0
+        let z = rz.IsValid() ? (xformScalarValue(rz) ?? 0.0) : 0.0
         return SIMD3<Double>(x, y, z)
     }
 
     private func rotationEulerHintDegrees(prim: UsdPrim) -> SIMD3<Double>? {
-        var customData = VtValue()
-        guard prim.GetMetadata(TfToken("customData"), &customData) else { return nil }
-        let raw = String(describing: customData)
-        guard raw.contains("rotationEulerHint") else { return nil }
-        let pattern = #"rotationEulerHint\s*=\s*\(([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?),\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?),\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: raw, options: [], range: NSRange(raw.startIndex..<raw.endIndex, in: raw))
-        else { return nil }
-        func group(_ index: Int) -> Double? {
-            guard let r = Range(match.range(at: index), in: raw) else { return nil }
-            return Double(String(raw[r]))
-        }
-        guard let rx = group(1), let ry = group(2), let rz = group(3) else { return nil }
+        // Canonical OpenUSD: typed dict-key read on customData. The writer in
+        // `setCommonTransform` stores `rotationEulerHint` as a GfVec3f in
+        // radians; reads dispatch through `VtValue` typed `Get` for the
+        // expected precisions.
+        var hintValue = VtValue()
+        guard prim.GetMetadataByDictKey(
+            TfToken("customData"),
+            TfToken("rotationEulerHint"),
+            &hintValue
+        ) else { return nil }
         let radToDeg = 180.0 / Double.pi
-        return SIMD3<Double>(rx * radToDeg, ry * radToDeg, rz * radToDeg)
-    }
-
-    private func parseVector3(from value: String) -> SIMD3<Double>? {
-        let pattern = #"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        let matches = regex.matches(in: value, options: [], range: range)
-        guard matches.count >= 3 else { return nil }
-        func number(_ idx: Int) -> Double? {
-            guard let r = Range(matches[idx].range, in: value) else { return nil }
-            return Double(String(value[r]))
+        if hintValue.IsHolding(GfVec3f.self) {
+            let v = hintValue.Get() as GfVec3f
+            return SIMD3<Double>(
+                Double(v[0]) * radToDeg,
+                Double(v[1]) * radToDeg,
+                Double(v[2]) * radToDeg
+            )
         }
-        guard let a = number(0), let b = number(1), let c = number(2) else { return nil }
-        return SIMD3<Double>(a, b, c)
-    }
-
-    private func parseScalar(from value: String) -> Double? {
-        let pattern = #"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: value, options: [], range: NSRange(value.startIndex..<value.endIndex, in: value)),
-              let r = Range(match.range, in: value)
-        else { return nil }
-        return Double(String(value[r]))
-    }
-
-    private func parseQuaternion(from value: String) -> simd_quatd? {
-        let pattern = #"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        let matches = regex.matches(in: value, options: [], range: range)
-        var numbers: [Double] = []
-        numbers.reserveCapacity(4)
-        for match in matches {
-            guard let r = Range(match.range, in: value), let number = Double(String(value[r])) else {
-                continue
-            }
-            numbers.append(number)
-            if numbers.count == 4 { break }
+        if hintValue.IsHolding(GfVec3d.self) {
+            let v = hintValue.Get() as GfVec3d
+            return SIMD3<Double>(v[0] * radToDeg, v[1] * radToDeg, v[2] * radToDeg)
         }
-        guard numbers.count == 4 else { return nil }
-        return simd_quatd(ix: numbers[1], iy: numbers[2], iz: numbers[3], r: numbers[0])
+        if hintValue.IsHolding(GfVec3h.self) {
+            let v = hintValue.Get() as GfVec3h
+            return SIMD3<Double>(
+                Double(Float(v[0])) * radToDeg,
+                Double(Float(v[1])) * radToDeg,
+                Double(Float(v[2])) * radToDeg
+            )
+        }
+        return nil
     }
 
     public func primMaterialBinding(
@@ -4225,29 +4231,84 @@ private func shaderInputBaseName(_ inputName: String) -> String {
 }
 
 private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
-    let raw = stableOwnedString(describing: value).trimmingCharacters(in: .whitespaces)
-    guard !raw.isEmpty else { return nil }
-    // Try as bool
-    if raw == "true" || raw == "false" || raw == "1" || raw == "0" {
-        return .bool(raw == "true" || raw == "1")
+    if value.IsHolding(Bool.self) {
+        return .bool(value.Get() as Bool)
     }
-    // Try as token-quoted string
-    if raw.hasPrefix("\"") && raw.hasSuffix("\"") {
-        let inner = String(raw.dropFirst().dropLast())
-        return .string(inner)
+
+    if value.IsHolding(Double.self) {
+        return .double(value.Get() as Double)
     }
-    // Try as vector: (x, y, z) or [x, y, z]
-    let vecRaw = raw.trimmingCharacters(in: CharacterSet(charactersIn: "()[]{} "))
-    let parts = vecRaw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-    if parts.count == 2 { return .vector2(USDVector2(x: parts[0], y: parts[1])) }
-    if parts.count == 3 { return .vector3(USDVector3(x: parts[0], y: parts[1], z: parts[2])) }
-    if parts.count == 4 { return .vector4(USDVector4(x: parts[0], y: parts[1], z: parts[2], w: parts[3])) }
-    // Try as double
-    if let d = Double(raw) { return .double(d) }
-    // Try as int
-    if let i = Int64(raw) { return .int(i) }
-    // Fallback: string
-    return .string(raw)
+    if value.IsHolding(Float.self) {
+        return .double(Double(value.Get() as Float))
+    }
+
+    if value.IsHolding(Int.self) {
+        return .int(Int64(value.Get() as Int))
+    }
+    if value.IsHolding(Int64.self) {
+        return .int(value.Get() as Int64)
+    }
+    if value.IsHolding(Int32.self) {
+        return .int(Int64(value.Get() as Int32))
+    }
+
+    if value.IsHolding(TfToken.self) {
+        let token = value.Get() as TfToken
+        return .token(USDToken(String(token.GetString())))
+    }
+    if value.IsHolding(std.string.self) {
+        return .string(String(value.Get() as std.string))
+    }
+    if value.IsHolding(SdfAssetPath.self) {
+        let assetPath = value.Get() as SdfAssetPath
+        let authored = String(assetPath.GetAssetPath())
+        if authored.isEmpty {
+            let resolved = String(assetPath.GetResolvedPath())
+            return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
+        }
+        return .assetPath(USDAssetPath(authored))
+    }
+
+    if value.IsHolding(GfVec2d.self) {
+        let v = value.Get() as GfVec2d
+        return .vector2(USDVector2(x: v[0], y: v[1]))
+    }
+    if value.IsHolding(GfVec2f.self) {
+        let v = value.Get() as GfVec2f
+        return .vector2(USDVector2(x: Double(v[0]), y: Double(v[1])))
+    }
+    if value.IsHolding(GfVec2i.self) {
+        let v = value.Get() as GfVec2i
+        return .vector2(USDVector2(x: Double(v[0]), y: Double(v[1])))
+    }
+
+    if value.IsHolding(GfVec3d.self) {
+        let v = value.Get() as GfVec3d
+        return .vector3(USDVector3(x: v[0], y: v[1], z: v[2]))
+    }
+    if value.IsHolding(GfVec3f.self) {
+        let v = value.Get() as GfVec3f
+        return .vector3(USDVector3(x: Double(v[0]), y: Double(v[1]), z: Double(v[2])))
+    }
+    if value.IsHolding(GfVec3i.self) {
+        let v = value.Get() as GfVec3i
+        return .vector3(USDVector3(x: Double(v[0]), y: Double(v[1]), z: Double(v[2])))
+    }
+
+    if value.IsHolding(GfVec4d.self) {
+        let v = value.Get() as GfVec4d
+        return .vector4(USDVector4(x: v[0], y: v[1], z: v[2], w: v[3]))
+    }
+    if value.IsHolding(GfVec4f.self) {
+        let v = value.Get() as GfVec4f
+        return .vector4(USDVector4(x: Double(v[0]), y: Double(v[1]), z: Double(v[2]), w: Double(v[3])))
+    }
+    if value.IsHolding(GfVec4i.self) {
+        let v = value.Get() as GfVec4i
+        return .vector4(USDVector4(x: Double(v[0]), y: Double(v[1]), z: Double(v[2]), w: Double(v[3])))
+    }
+
+    return nil
 }
 
 private func stableOwnedString<T>(describing value: T) -> String {
