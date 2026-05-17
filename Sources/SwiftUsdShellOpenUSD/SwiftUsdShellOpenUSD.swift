@@ -1794,7 +1794,17 @@ private extension OpenUSDStageRuntime {
         var token = TfToken()
         if idAttr.Get(&token, UsdTimeCode.Default()) {
             let value = stableOwnedString(describing: token.GetString())
-            return value.isEmpty ? nil : value
+            if !value.isEmpty {
+                return value
+            }
+        }
+
+        var stringValue = std.string()
+        if idAttr.Get(&stringValue, UsdTimeCode.Default()) {
+            let value = stableOwnedString(describing: stringValue)
+            if !value.isEmpty {
+                return value
+            }
         }
 
         return nil
@@ -2893,17 +2903,19 @@ private extension OpenUSDStageRuntime {
         }
 
         let inputBaseName = shaderInputBaseName(query.inputName)
-        let inputToken = TfToken(std.string(inputBaseName))
+        let inputAttrToken = TfToken(std.string("inputs:\(inputBaseName)"))
         var rewrites: [USDAttributeTypeRewrite] = []
 
         for var prim in stage.Traverse().swiftSequence {
             let shader = UsdShadeShader(prim)
-            guard shader.GetPrim().IsValid() else { continue }
+            let isShaderPrim =
+                shader.GetPrim().IsValid()
+                || stableOwnedString(describing: prim.GetTypeName().GetString()) == "Shader"
+            guard isShaderPrim else { continue }
             guard let shaderIdentifier = shaderIdentifier(prim),
                   shaderIdentifier.hasPrefix(query.shaderIdentifierPrefix) else { continue }
 
-            let input = shader.GetInput(inputToken)
-            let attr = input.GetAttr()
+            let attr = prim.GetAttribute(inputAttrToken)
             guard attr.IsValid(), attr.GetTypeName() == currentTypeName else { continue }
 
             rewrites.append(
