@@ -3590,6 +3590,217 @@ private extension OpenUSDStageRuntime {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
     }
+
+    /// Blocks MaterialX outputs and deactivates MaterialX helper shaders on
+    /// every `Material` prim in the stage, then saves the root layer in place.
+    ///
+    /// This is the canonical replacement for the legacy USDTools viewport
+    /// stage preparation that prevented MaterialX outputs from masking
+    /// `UsdPreviewSurface` outputs and stripped helper shaders that
+    /// RealityKit cannot consume. The operation uses canonical UsdShade
+    /// semantics — `UsdAttribute.Block()` on `outputs:mtlx:*` and
+    /// `inputs:*:varname` attributes, and `UsdPrim.SetActive(false)` on
+    /// `Lookup_st`/`*_mtlx` helper shader children.
+    ///
+    /// The stage is opened with `loadAll` so MaterialX prims resolved through
+    /// payloads are visible to the typed traversal. Opinions are authored on
+    /// the root layer (the stage's default edit target) and then saved.
+    public func prepareViewportMaterialXBlocking(
+        stageURL: USDStageURL
+    ) throws -> USDViewportMaterialXBlockingResult {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+
+        let mtlxOutputNames: [String] = [
+            "outputs:mtlx:surface",
+            "outputs:mtlx:displacement",
+            "outputs:mtlx:volume",
+        ]
+
+        var blockedOutputCount = 0
+        var blockedMaterialInputCount = 0
+        var deactivatedShaderCount = 0
+
+        for prim in stage.Traverse().swiftSequence {
+            guard stableOwnedString(describing: prim.GetTypeName().GetString()) == "Material" else {
+                continue
+            }
+
+            let hasMaterialXOutputs = mtlxOutputNames.contains { outputName in
+                prim.GetAttribute(TfToken(std.string(outputName))).IsValid()
+            }
+            let hasMaterialXChildren = prim.GetChildren().swiftSequence.contains { child in
+                guard stableOwnedString(describing: child.GetTypeName().GetString()) == "Shader" else {
+                    return false
+                }
+                let childName = stableOwnedString(describing: child.GetName().GetString())
+                return childName == "Lookup_st" || childName.contains("_mtlx")
+            }
+            guard hasMaterialXOutputs || hasMaterialXChildren else { continue }
+
+            for outputName in mtlxOutputNames {
+                let attr = prim.GetAttribute(TfToken(std.string(outputName)))
+                guard attr.IsValid() else { continue }
+                attr.Block()
+                blockedOutputCount += 1
+            }
+
+            for attr in prim.GetAttributes() {
+                let attrName = stableOwnedString(describing: attr.GetName().GetString())
+                guard attrName.hasPrefix("inputs:"),
+                      attrName.hasSuffix(":varname")
+                else { continue }
+                attr.Block()
+                blockedMaterialInputCount += 1
+            }
+
+            for child in prim.GetChildren().swiftSequence {
+                guard stableOwnedString(describing: child.GetTypeName().GetString()) == "Shader" else {
+                    continue
+                }
+                let childName = stableOwnedString(describing: child.GetName().GetString())
+                guard childName == "Lookup_st" || childName.contains("_mtlx") else { continue }
+                var mutableChild = child
+                _ = mutableChild.SetActive(false)
+                deactivatedShaderCount += 1
+            }
+        }
+
+        let rootLayerHandle = stage.GetRootLayer()
+        guard Bool(rootLayerHandle) else {
+            throw SwiftUsdShellError.invalidValue(
+                "MaterialX blocking: root layer is not accessible for \(stageURL.url.lastPathComponent)"
+            )
+        }
+        let rootLayer = USDOverlay.Dereference(rootLayerHandle)
+        guard rootLayer.Save(false) else {
+            throw SwiftUsdShellError.invalidValue(
+                "MaterialX blocking: failed to save root layer for \(stageURL.url.lastPathComponent)"
+            )
+        }
+
+        return USDViewportMaterialXBlockingResult(
+            blockedOutputCount: blockedOutputCount,
+            blockedMaterialInputCount: blockedMaterialInputCount,
+            deactivatedShaderCount: deactivatedShaderCount
+        )
+    }
+
+    /// Authors missing `UsdUVTexture` defaults required for normal-map
+    /// behavior. For each `UsdUVTexture` shader spec whose `outputs:rgb` is
+    /// declared as `normal3f`, the helper authors any of the missing
+    /// canonical defaults — `inputs:sourceColorSpace = "raw"`,
+    /// `inputs:bias = (-1,-1,-1,0)`, and `inputs:scale = (2,2,2,1)` — using
+    /// typed `SdfAttributeSpec.New` + `SetDefaultValue` calls on the root
+    /// layer. Existing authored values are not overwritten.
+    public func authorUsdUVTextureNormalMapDefaults(
+        stageURL: USDStageURL
+    ) throws -> USDViewportNormalMapNormalizationResult {
+        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        let rootLayerHandle = stage.GetRootLayer()
+        guard Bool(rootLayerHandle) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Normal-map normalization: root layer is not accessible for \(stageURL.url.lastPathComponent)"
+            )
+        }
+        let rootLayer = USDOverlay.Dereference(rootLayerHandle)
+
+        var normalizedShaderCount = 0
+        authorNormalMapDefaults(
+            primSpec: rootLayer.GetPseudoRoot(),
+            normalizedShaderCount: &normalizedShaderCount
+        )
+
+        if normalizedShaderCount > 0 {
+            guard rootLayer.Save(false) else {
+                throw SwiftUsdShellError.invalidValue(
+                    "Normal-map normalization: failed to save root layer for \(stageURL.url.lastPathComponent)"
+                )
+            }
+        }
+
+        return USDViewportNormalMapNormalizationResult(
+            normalizedShaderCount: normalizedShaderCount
+        )
+    }
+
+}
+
+/// Walks `SdfPrimSpec` children recursively and authors missing
+/// `UsdUVTexture` normal-map defaults on layer specs whose authored
+/// `outputs:rgb` is `normal3f`. Existing authored opinions are preserved.
+///
+/// Canonical OpenUSD: traversal uses `SdfPrimSpec.GetNameChildren()`, shader
+/// identification uses the typed `info:id` attribute spec, and the three
+/// defaults are authored via typed `SdfAttributeSpec.New` +
+/// `SetDefaultValue`. No string or composed-stage parsing.
+private func authorNormalMapDefaults(
+    primSpec handle: SdfPrimSpecHandle,
+    normalizedShaderCount: inout Int
+) {
+    guard Bool(handle) else { return }
+    let primSpec = handle.pointee
+
+    if isShaderPrimSpec(primSpec),
+       let identifier = shaderIdentifier(primSpec),
+       identifier == "UsdUVTexture",
+       let rgbOutput = attributeSpec(named: "outputs:rgb", on: primSpec),
+       rgbOutput.GetTypeName() == SdfValueTypeName.Normal3f {
+
+        var authoredAny = false
+
+        if attributeSpec(named: "inputs:sourceColorSpace", on: primSpec) == nil {
+            let newSpec = SdfAttributeSpec.New(
+                handle,
+                std.string("inputs:sourceColorSpace"),
+                SdfValueTypeName.Token,
+                SdfVariability.SdfVariabilityUniform,
+                false
+            )
+            if Bool(newSpec) {
+                _ = newSpec.pointee.SetDefaultValue(VtValue(TfToken(std.string("raw"))))
+                authoredAny = true
+            }
+        }
+
+        if attributeSpec(named: "inputs:bias", on: primSpec) == nil {
+            let newSpec = SdfAttributeSpec.New(
+                handle,
+                std.string("inputs:bias"),
+                SdfValueTypeName.Float4,
+                SdfVariability.SdfVariabilityVarying,
+                false
+            )
+            if Bool(newSpec) {
+                _ = newSpec.pointee.SetDefaultValue(VtValue(pxr.GfVec4f(-1, -1, -1, 0)))
+                authoredAny = true
+            }
+        }
+
+        if attributeSpec(named: "inputs:scale", on: primSpec) == nil {
+            let newSpec = SdfAttributeSpec.New(
+                handle,
+                std.string("inputs:scale"),
+                SdfValueTypeName.Float4,
+                SdfVariability.SdfVariabilityVarying,
+                false
+            )
+            if Bool(newSpec) {
+                _ = newSpec.pointee.SetDefaultValue(VtValue(pxr.GfVec4f(2, 2, 2, 1)))
+                authoredAny = true
+            }
+        }
+
+        if authoredAny {
+            normalizedShaderCount += 1
+        }
+    }
+
+    for child in primSpec.GetNameChildren() {
+        authorNormalMapDefaults(
+            primSpec: child,
+            normalizedShaderCount: &normalizedShaderCount
+        )
+    }
 }
 
 private func collectDiagnostics(_ body: () -> Void) -> [USDDiagnostic] {

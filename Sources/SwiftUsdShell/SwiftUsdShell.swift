@@ -1225,6 +1225,49 @@ public struct USDMaterialSurfaceShader: Hashable, Sendable, Codable {
     }
 }
 
+/// Result of blocking MaterialX outputs and deactivating MaterialX helper
+/// shaders on `Material` prims for RealityKit-bound viewport staging.
+///
+/// This mirrors the load-bearing legacy USDTools behavior that prevented
+/// MaterialX outputs from masking `UsdPreviewSurface` outputs and stripped
+/// `_mtlx`/`Lookup_st` helper shaders that RealityKit cannot consume. The
+/// operation is authored as a root-layer opinion via canonical UsdShade
+/// APIs (`UsdAttribute.Block()` and `UsdPrim.SetActive(false)`).
+public struct USDViewportMaterialXBlockingResult: Hashable, Sendable, Codable {
+    /// Number of `outputs:mtlx:*` attributes blocked on Material prims.
+    public var blockedOutputCount: Int
+    /// Number of `inputs:*:varname` attributes blocked on Material prims.
+    public var blockedMaterialInputCount: Int
+    /// Number of MaterialX helper shaders deactivated.
+    public var deactivatedShaderCount: Int
+
+    public init(
+        blockedOutputCount: Int,
+        blockedMaterialInputCount: Int,
+        deactivatedShaderCount: Int
+    ) {
+        self.blockedOutputCount = blockedOutputCount
+        self.blockedMaterialInputCount = blockedMaterialInputCount
+        self.deactivatedShaderCount = deactivatedShaderCount
+    }
+}
+
+/// Result of authoring missing `UsdUVTexture` defaults required to make a
+/// `normal3f` normal-map shader behave correctly in viewport renderers.
+///
+/// For each `UsdUVTexture` shader whose `outputs:rgb` is declared as
+/// `normal3f`, the helper authors the missing typed defaults:
+/// `inputs:sourceColorSpace = "raw"`, `inputs:bias = (-1,-1,-1,0)`, and
+/// `inputs:scale = (2,2,2,1)`. Existing authored opinions are left intact.
+public struct USDViewportNormalMapNormalizationResult: Hashable, Sendable, Codable {
+    /// Number of normal-map shaders that had at least one default authored.
+    public var normalizedShaderCount: Int
+
+    public init(normalizedShaderCount: Int) {
+        self.normalizedShaderCount = normalizedShaderCount
+    }
+}
+
 // MARK: - Runtime Contracts
 
 public struct USDStageInspectionOptions: Hashable, Sendable, Codable {
