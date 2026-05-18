@@ -1466,7 +1466,7 @@ public final class OpenUSDStageRuntime: Sendable {
             guard imageExtensions.contains(ext) else { continue }
 
             // Reject entries with path traversal to keep output within outputDirectory.
-            guard let relativePath = normalizedPackagedTexturePath(filename) else { continue }
+            guard let relativePath = normalizedPackagedAssetPath(filename) else { continue }
 
             let fileInfo = entry.GetFileInfo()
             guard fileInfo.compressionMethod == 0, let dataPtr = entry.GetFile() else { continue }
@@ -1481,6 +1481,87 @@ public final class OpenUSDStageRuntime: Sendable {
         }
         return writtenCount
     }
+
+    public func extractPackage(
+        packageURL: USDStageURL,
+        outputDirectory: URL,
+        refresh: Bool
+    ) throws -> Int {
+        let fileManager = FileManager.default
+        if refresh, fileManager.fileExists(atPath: outputDirectory.path) {
+            try fileManager.removeItem(at: outputDirectory)
+        }
+        guard packageURL.url.pathExtension.lowercased() == "usdz" else {
+            return 0
+        }
+
+        let zipFile = SdfZipFile.Open(std.string(packageURL.url.path))
+        guard Bool(zipFile) else {
+            throw SwiftUsdShellError.invalidValue("Failed to open USDZ: \(packageURL.url.lastPathComponent)")
+        }
+
+        var writtenCount = 0
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        for entry in zipFile.swiftSequence {
+            let filename = String(entry.pointee)
+            guard let relativePath = normalizedPackagedAssetPath(filename) else { continue }
+
+            let fileInfo = entry.GetFileInfo()
+            guard fileInfo.compressionMethod == 0, let dataPtr = entry.GetFile() else { continue }
+
+            let data = Data(bytes: dataPtr, count: Int(fileInfo.size))
+            let outputURL = outputDirectory.appendingPathComponent(relativePath).standardizedFileURL
+            guard outputURL.path.hasPrefix(outputDirectory.path + "/") || outputURL.path == outputDirectory.path else { continue }
+            try fileManager.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: outputURL, options: Data.WritingOptions.atomic)
+            writtenCount += 1
+        }
+        return writtenCount
+    }
+
+    public func packagedAssetData(packageURL: USDStageURL, memberPath: USDAssetPath) throws -> Data? {
+        guard packageURL.url.pathExtension.lowercased() == "usdz" else {
+            return nil
+        }
+        guard let requestedPath = normalizedPackagedAssetPath(memberPath.rawValue) else {
+            return nil
+        }
+
+        let zipFile = SdfZipFile.Open(std.string(packageURL.url.path))
+        guard Bool(zipFile) else {
+            throw SwiftUsdShellError.invalidValue("Failed to open USDZ: \(packageURL.url.lastPathComponent)")
+        }
+
+        for entry in zipFile.swiftSequence {
+            let filename = String(entry.pointee)
+            guard normalizedPackagedAssetPath(filename) == requestedPath else { continue }
+            let fileInfo = entry.GetFileInfo()
+            guard fileInfo.compressionMethod == 0, let dataPtr = entry.GetFile() else { return nil }
+            return Data(bytes: dataPtr, count: Int(fileInfo.size))
+        }
+        return nil
+    }
+
+    public func packagedAssetPaths(packageURL: USDStageURL) throws -> [USDAssetPath] {
+        guard packageURL.url.pathExtension.lowercased() == "usdz" else {
+            return []
+        }
+
+        let zipFile = SdfZipFile.Open(std.string(packageURL.url.path))
+        guard Bool(zipFile) else {
+            throw SwiftUsdShellError.invalidValue("Failed to open USDZ: \(packageURL.url.lastPathComponent)")
+        }
+
+        var paths: [USDAssetPath] = []
+        for entry in zipFile.swiftSequence {
+            let filename = String(entry.pointee)
+            guard let relativePath = normalizedPackagedAssetPath(filename) else { continue }
+            paths.append(USDAssetPath(relativePath))
+        }
+        return paths
+    }
+
     public func rootPrimPaths(stage: USDStageURL) throws -> [USDPath] {
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadNone)
         guard stagePtr._isNonnull() else {
@@ -1526,8 +1607,22 @@ public final class OpenUSDStageRuntime: Sendable {
 
 /// Sanitize a USDZ archive member path: reject traversal (`..`)
 /// and strip leading slashes / current-directory components.
-private func normalizedPackagedTexturePath(_ archiveMemberPath: String) -> String? {
-    let rawComponents = archiveMemberPath
+private func normalizedPackagedAssetPath(_ archiveMemberPath: String) -> String? {
+    var normalized = archiveMemberPath
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalized.hasPrefix("@"), normalized.hasSuffix("@"), normalized.count > 1 {
+        normalized.removeFirst()
+        normalized.removeLast()
+    }
+    if let open = normalized.lastIndex(of: "["),
+       let close = normalized.lastIndex(of: "]"),
+       open < close,
+       normalized[..<open].lowercased().contains(".usdz")
+    {
+        normalized = String(normalized[normalized.index(after: open)..<close])
+    }
+
+    let rawComponents = normalized
         .replacingOccurrences(of: "\\", with: "/")
         .split(separator: "/")
     var sanitized: [String] = []
@@ -3147,7 +3242,8 @@ private extension OpenUSDStageRuntime {
 
         let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
         collectShaderInputTypeRewrites(
-            primSpec: rootLayer.GetPseudoRoot(),
+            stage: stage,
+            rootLayer: rootLayer,
             inputAttrName: inputAttrName,
             currentTypeName: currentTypeName,
             targetTypeName: query.targetTypeName,
@@ -3712,7 +3808,8 @@ private extension OpenUSDStageRuntime {
 
         var normalizedShaderCount = 0
         authorNormalMapDefaults(
-            primSpec: rootLayer.GetPseudoRoot(),
+            stage: stage,
+            rootLayer: rootLayer,
             normalizedShaderCount: &normalizedShaderCount
         )
 
@@ -3731,30 +3828,32 @@ private extension OpenUSDStageRuntime {
 
 }
 
-/// Walks `SdfPrimSpec` children recursively and authors missing
-/// `UsdUVTexture` normal-map defaults on layer specs whose authored
-/// `outputs:rgb` is `normal3f`. Existing authored opinions are preserved.
+/// Walks composed shader prims and authors missing `UsdUVTexture` normal-map
+/// defaults only when the corresponding root-layer specs exist. Existing
+/// authored opinions are preserved.
 ///
-/// Canonical OpenUSD: traversal uses `SdfPrimSpec.GetNameChildren()`, shader
-/// identification uses the typed `info:id` attribute spec, and the three
-/// defaults are authored via typed `SdfAttributeSpec.New` +
-/// `SetDefaultValue`. No string or composed-stage parsing.
+/// Canonical OpenUSD: traversal uses `UsdPrimRange`/`UsdShadeShader`; authoring
+/// uses typed `SdfAttributeSpec.New` + `SetDefaultValue`. No stringified USD
+/// metadata parsing.
 private func authorNormalMapDefaults(
-    primSpec handle: SdfPrimSpecHandle,
+    stage: UsdStage,
+    rootLayer: SdfLayer,
     normalizedShaderCount: inout Int
 ) {
-    guard Bool(handle) else { return }
-    let primSpec = handle.pointee
+    for prim in stage.Traverse().swiftSequence {
+        guard isShaderPrim(prim),
+              shaderIdentifier(prim) == "UsdUVTexture" else { continue }
 
-    if isShaderPrimSpec(primSpec),
-       let identifier = shaderIdentifier(primSpec),
-       identifier == "UsdUVTexture",
-       let rgbOutput = attributeSpec(named: "outputs:rgb", on: primSpec),
-       rgbOutput.GetTypeName() == SdfValueTypeName.Normal3f {
+        let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
+        guard let rgbOutput = attributeSpec(named: "outputs:rgb", primPath: primPath, in: rootLayer),
+              rgbOutput.GetTypeName() == SdfValueTypeName.Normal3f else { continue }
+
+        let handle = rootLayer.GetPrimAtPath(SdfPath(std.string(primPath)))
+        guard Bool(handle) else { continue }
 
         var authoredAny = false
 
-        if attributeSpec(named: "inputs:sourceColorSpace", on: primSpec) == nil {
+        if attributeSpec(named: "inputs:sourceColorSpace", primPath: primPath, in: rootLayer) == nil {
             let newSpec = SdfAttributeSpec.New(
                 handle,
                 std.string("inputs:sourceColorSpace"),
@@ -3769,7 +3868,7 @@ private func authorNormalMapDefaults(
             }
         }
 
-        if attributeSpec(named: "inputs:bias", on: primSpec) == nil {
+        if attributeSpec(named: "inputs:bias", primPath: primPath, in: rootLayer) == nil {
             let newSpec = SdfAttributeSpec.New(
                 handle,
                 std.string("inputs:bias"),
@@ -3784,7 +3883,7 @@ private func authorNormalMapDefaults(
             }
         }
 
-        if attributeSpec(named: "inputs:scale", on: primSpec) == nil {
+        if attributeSpec(named: "inputs:scale", primPath: primPath, in: rootLayer) == nil {
             let newSpec = SdfAttributeSpec.New(
                 handle,
                 std.string("inputs:scale"),
@@ -3802,13 +3901,6 @@ private func authorNormalMapDefaults(
         if authoredAny {
             normalizedShaderCount += 1
         }
-    }
-
-    forEachNameChild(primSpec) { child in
-        authorNormalMapDefaults(
-            primSpec: child,
-            normalizedShaderCount: &normalizedShaderCount
-        )
     }
 }
 
@@ -4094,83 +4186,61 @@ private func rewrittenAttributeValue(
 }
 
 private func collectShaderInputTypeRewrites(
-    primSpec handle: SdfPrimSpecHandle,
+    stage: UsdStage,
+    rootLayer: SdfLayer,
     inputAttrName: String,
     currentTypeName: SdfValueTypeName,
     targetTypeName: String,
     shaderIdentifierPrefix: String,
     rewrites: inout [USDAttributeTypeRewrite]
 ) {
-    guard Bool(handle) else { return }
-    let primSpec = handle.pointee
+    for prim in UsdPrimRange.AllPrims(stage.GetPseudoRoot()).swiftSequence {
+        guard isShaderPrim(prim),
+              let identifier = shaderIdentifier(prim),
+              identifier.hasPrefix(shaderIdentifierPrefix) else { continue }
 
-    if isShaderPrimSpec(primSpec),
-       let identifier = shaderIdentifier(primSpec),
-       identifier.hasPrefix(shaderIdentifierPrefix) {
-        if let attrSpec = attributeSpec(named: inputAttrName, on: primSpec),
+        let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
+        if let attrSpec = attributeSpec(named: inputAttrName, primPath: primPath, in: rootLayer),
            attrSpec.GetTypeName() == currentTypeName {
             rewrites.append(
                 USDAttributeTypeRewrite(
-                    primPath: stableOwnedString(describing: primSpec.GetPath().GetAsString()),
+                    primPath: primPath,
                     attributeName: inputAttrName,
                     targetTypeName: targetTypeName
                 )
             )
         }
     }
-
-    forEachNameChild(primSpec) { child in
-        collectShaderInputTypeRewrites(
-            primSpec: child,
-            inputAttrName: inputAttrName,
-            currentTypeName: currentTypeName,
-            targetTypeName: targetTypeName,
-            shaderIdentifierPrefix: shaderIdentifierPrefix,
-            rewrites: &rewrites
-        )
-    }
 }
 
-private func forEachNameChild(
-    _ primSpec: SdfPrimSpec,
-    _ body: (SdfPrimSpecHandle) -> Void
-) {
-    let children = primSpec.GetNameChildren()
-    var iterator = children.__beginUnsafe()
-    let end = children.__endUnsafe()
-    while iterator != end {
-        body(iterator.pointee)
-        iterator = iterator.successor()
-    }
+private func isShaderPrim(_ prim: UsdPrim) -> Bool {
+    stableOwnedString(describing: prim.GetTypeName().GetString()) == "Shader"
 }
 
-private func isShaderPrimSpec(_ primSpec: SdfPrimSpec) -> Bool {
-    stableOwnedString(describing: primSpec.GetTypeName()) == "Shader"
+private func attributeSpec(named name: String, primPath: String, in layer: SdfLayer) -> SdfAttributeSpec? {
+    let attrSpec = layer.GetAttributeAtPath(attributePath(primPath: primPath, attributeName: name))
+    return Bool(attrSpec) ? attrSpec.pointee : nil
 }
 
-private func attributeSpec(named name: String, on primSpec: SdfPrimSpec) -> SdfAttributeSpec? {
-    for attrSpecHandle in primSpec.GetAttributes() {
-        let attrSpec = attrSpecHandle.pointee
-        if stableOwnedString(describing: attrSpec.GetName()) == name {
-            return attrSpec
-        }
-    }
-    return nil
+private func attributePath(primPath: String, attributeName: String) -> SdfPath {
+    SdfPath(std.string("\(primPath).\(attributeName)"))
 }
 
-private func shaderIdentifier(_ primSpec: SdfPrimSpec) -> String? {
-    guard let attr = attributeSpec(named: "info:id", on: primSpec) else { return nil }
-    guard attr.HasDefaultValue() else { return nil }
-    var value = attr.GetDefaultValue()
+private func shaderIdentifier(_ prim: UsdPrim) -> String? {
+    let shader = UsdShadeShader(prim)
+    guard USDOverlay.GetPrim(shader).IsValid() else { return nil }
+    let attr = shader.GetIdAttr()
+    guard attr.IsValid() else { return nil }
 
-    if attr.GetTypeName() == SdfValueTypeName.Token {
-        let token = value.Get() as TfToken
+    var token = TfToken()
+    if attr.Get(&token, UsdTimeCode.Default()) {
         let raw = stableOwnedString(describing: token.GetString())
         return raw.isEmpty ? nil : raw
     }
 
-    if attr.GetTypeName() == SdfValueTypeName.String {
-        let raw = stableOwnedString(describing: value.Get() as std.string)
+    var stringValue = std.string()
+    if attr.Get(&stringValue, UsdTimeCode.Default()) {
+        let raw = stableOwnedString(describing: stringValue)
         return raw.isEmpty ? nil : raw
     }
 
@@ -4198,7 +4268,11 @@ private func rewriteAttributeSpecType(
     )
     let fallbackDefault = attrSpec.HasDefaultValue() ? attrSpec.GetDefaultValue() : nil
 
-    owner.pointee.RemoveProperty(handle)
+    let property = layer.GetPropertyAtPath(attrSpec.GetPath())
+    guard Bool(property) else { return false }
+
+    var ownerSpec = owner.pointee
+    ownerSpec.RemoveProperty(property)
 
     let rewritten = SdfAttributeSpec.New(
         owner,
@@ -4209,11 +4283,12 @@ private func rewriteAttributeSpecType(
     )
     guard Bool(rewritten) else { return false }
 
+    var rewrittenSpec = rewritten.pointee
     if let rewrittenDefault {
-        return rewritten.pointee.SetDefaultValue(rewrittenDefault)
+        return rewrittenSpec.SetDefaultValue(rewrittenDefault)
     }
     if let fallbackDefault {
-        return rewritten.pointee.SetDefaultValue(fallbackDefault)
+        return rewrittenSpec.SetDefaultValue(fallbackDefault)
     }
     return true
 }
@@ -4246,7 +4321,9 @@ private func shaderInputBaseName(_ inputName: String) -> String {
     return inputName
 }
 
-private func convertVtValueToUSDValue(_ value: VtValue) -> USDValue? {
+private func convertVtValueToUSDValue(_ input: VtValue) -> USDValue? {
+    var value = input
+
     if value.IsHolding(T: Bool.self) {
         return .bool(value.Get() as Bool)
     }
