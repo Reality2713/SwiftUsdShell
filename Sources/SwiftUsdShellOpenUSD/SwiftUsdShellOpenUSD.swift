@@ -126,289 +126,306 @@ public final class OpenUSDStageRuntime: Sendable {
     public init() {}
 
     public func inspectStage(_ request: USDStageInspectionRequest) async throws -> USDStageInspection {
-        let stage = try stage(for: request.stageURL, loadPolicy: request.options.loadPolicy)
-        let metadata = stageMetadata(stage)
-        let tree = request.options.includePrimTree ? primTree(stage.GetPseudoRoot()) : nil
+        return try withStage(for: request.stageURL, loadPolicy: request.options.loadPolicy) { stage in
+            let metadata = stageMetadata(stage)
+            let tree = request.options.includePrimTree ? primTree(stage.GetPseudoRoot()) : nil
 
-        return USDStageInspection(
-            stageURL: request.stageURL,
-            metadata: metadata,
-            primTree: tree,
-            statistics: request.options.includeStatistics ? geometryStatistics(stage.GetPseudoRoot()) : nil,
-            bounds: request.options.includeBounds ? sceneBounds(stage) : nil,
-            diagnostics: collectDiagnostics {
-                _ = stage.GetPseudoRoot()
-            }
-        )
+            return USDStageInspection(
+                stageURL: request.stageURL,
+                metadata: metadata,
+                primTree: tree,
+                statistics: request.options.includeStatistics ? geometryStatistics(stage.GetPseudoRoot()) : nil,
+                bounds: request.options.includeBounds ? sceneBounds(stage) : nil,
+                diagnostics: collectDiagnostics {
+                    _ = stage.GetPseudoRoot()
+                }
+            )
+        }
     }
 
     public func inspectPrim(_ request: USDPrimInspectionRequest) async throws -> USDPrimInspection {
-        let stage = try stage(for: request.stageURL, loadPolicy: .loadAll)
-        let prim = stage.GetPrimAtPath(SdfPath(std.string(request.primPath.rawValue)))
-        guard prim.IsValid() else {
-            throw SwiftUsdShellError.primNotFound(stageURL: request.stageURL, primPath: request.primPath)
-        }
+        return try withStage(for: request.stageURL, loadPolicy: .loadAll) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(request.primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: request.stageURL, primPath: request.primPath)
+            }
 
-        let diagnostics = collectDiagnostics {
-            _ = prim.GetPath()
-        }
+            let diagnostics = collectDiagnostics {
+                _ = prim.GetPath()
+            }
 
-        return USDPrimInspection(
-            prim: primSummary(
-                prim,
-                includeAttributes: request.options.includeAttributes,
-                includeRelationships: request.options.includeRelationships
-            ),
-            compositionArcs: request.options.includeCompositionArcs ? compositionArcs(prim) : [],
-            variantSets: request.options.includeVariantSets ? variantSets(prim) : [],
-            transform: request.options.includeTransform ? transformInspection(prim, timeCode: request.options.timeCode) : nil,
-            statistics: request.options.includeStatistics ? geometryStatistics(prim) : nil,
-            bounds: request.options.includeBounds
-                ? sceneBounds(prim, timeCode: request.options.timeCode)
-                : nil,
-            diagnostics: diagnostics
-        )
+            return USDPrimInspection(
+                prim: primSummary(
+                    prim,
+                    includeAttributes: request.options.includeAttributes,
+                    includeRelationships: request.options.includeRelationships
+                ),
+                compositionArcs: request.options.includeCompositionArcs ? compositionArcs(prim) : [],
+                variantSets: request.options.includeVariantSets ? variantSets(prim) : [],
+                transform: request.options.includeTransform ? transformInspection(prim, timeCode: request.options.timeCode) : nil,
+                statistics: request.options.includeStatistics ? geometryStatistics(prim) : nil,
+                bounds: request.options.includeBounds
+                    ? sceneBounds(prim, timeCode: request.options.timeCode)
+                    : nil,
+                diagnostics: diagnostics
+            )
+        }
     }
 
     public func edit(_ request: USDEditRequest) async throws -> USDEditResult {
         switch request {
         case .setDefaultPrim(let stageURL, let primPath):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-            }
-            stage.SetDefaultPrim(prim)
-            return USDEditResult(
-                refreshHints: USDEditRefreshHints(
-                    refreshSceneGraph: true,
-                    changedPrimPaths: [primPath],
-                    selectionPath: primPath
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                stage.SetDefaultPrim(prim)
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        refreshSceneGraph: true,
+                        changedPrimPaths: [primPath],
+                        selectionPath: primPath
+                    )
                 )
-            )
+            }
 
         case .setMetersPerUnit(let stageURL, let value):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let ok = pxr.UsdGeomSetStageMetersPerUnit(USDOverlay.TfWeakPtr(stage), value)
-            guard ok else {
-                throw SwiftUsdShellError.invalidValue("Unable to author metersPerUnit \(value)")
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let ok = pxr.UsdGeomSetStageMetersPerUnit(USDOverlay.TfWeakPtr(stage), value)
+                guard ok else {
+                    throw SwiftUsdShellError.invalidValue("Unable to author metersPerUnit \(value)")
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .setUpAxis(let stageURL, let axis):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let ok = pxr.UsdGeomSetStageUpAxis(
-                USDOverlay.TfWeakPtr(stage),
-                TfToken(std.string(axis.rawValue))
-            )
-            guard ok else {
-                throw SwiftUsdShellError.invalidValue("Unable to author upAxis \(axis.rawValue)")
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let ok = pxr.UsdGeomSetStageUpAxis(
+                    USDOverlay.TfWeakPtr(stage),
+                    TfToken(std.string(axis.rawValue))
+                )
+                guard ok else {
+                    throw SwiftUsdShellError.invalidValue("Unable to author upAxis \(axis.rawValue)")
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .setPrimTransform(let stageURL, let primPath, let transform, let options):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-            }
-            try setCommonTransform(transform, on: prim, options: options)
-            return USDEditResult(
-                refreshHints: USDEditRefreshHints(
-                    reloadViewport: true,
-                    refreshSceneGraph: false,
-                    refreshInspector: true,
-                    changedPrimPaths: [primPath],
-                    selectionPath: primPath
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                try setCommonTransform(transform, on: prim, options: options)
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        reloadViewport: true,
+                        refreshSceneGraph: false,
+                        refreshInspector: true,
+                        changedPrimPaths: [primPath],
+                        selectionPath: primPath
+                    )
                 )
-            )
+            }
 
         case .setDoubleSided(let stageURL, let primPath, let value):
             return try setDoubleSided(stageURL: stageURL, primPath: primPath, value: value)
 
         case .setSubdivisionScheme(let stageURL, let primPath, let scheme):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let attr = prim.GetAttribute(TfToken("subdivisionScheme"))
+                if attr.IsValid() {
+                    attr.Set(VtValue(TfToken(std.string(scheme.rawValue))), UsdTimeCode.Default())
+                } else {
+                    let created = prim.CreateAttribute(
+                        TfToken("subdivisionScheme"), SdfValueTypeName.Token, false,
+                        SdfVariability.SdfVariabilityUniform
+                    )
+                    created.Set(VtValue(TfToken(std.string(scheme.rawValue))), UsdTimeCode.Default())
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            let attr = prim.GetAttribute(TfToken("subdivisionScheme"))
-            if attr.IsValid() {
-                attr.Set(VtValue(TfToken(std.string(scheme.rawValue))), UsdTimeCode.Default())
-            } else {
-                let created = prim.CreateAttribute(
-                    TfToken("subdivisionScheme"), SdfValueTypeName.Token, false,
-                    SdfVariability.SdfVariabilityUniform
-                )
-                created.Set(VtValue(TfToken(std.string(scheme.rawValue))), UsdTimeCode.Default())
-            }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .applySchema(let stageURL, let primPath, let schemaName):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let schema = schemaName.rawValue
+                if schema == "MaterialBindingAPI" {
+                    _ = UsdShadeMaterialBindingAPI.Apply(prim)
+                } else if schema == "SkelBindingAPI" {
+                    _ = pxr.UsdSkelBindingAPI.Apply(prim)
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            let schema = schemaName.rawValue
-            if schema == "MaterialBindingAPI" {
-                _ = UsdShadeMaterialBindingAPI.Apply(prim)
-            } else if schema == "SkelBindingAPI" {
-                _ = pxr.UsdSkelBindingAPI.Apply(prim)
-            }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .removeSchema(let stageURL, let primPath, let schemaName):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let schema = schemaName.rawValue
+                if schema == "MaterialBindingAPI" {
+                    let bindingAPI = UsdShadeMaterialBindingAPI(prim)
+                    bindingAPI.UnbindAllBindings()
+                } else if schema == "SkelBindingAPI" {
+                    _ = prim.RemoveAPI(TfToken("SkelBindingAPI"), TfToken(""))
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            let schema = schemaName.rawValue
-            if schema == "MaterialBindingAPI" {
-                let bindingAPI = UsdShadeMaterialBindingAPI(prim)
-                bindingAPI.UnbindAllBindings()
-            } else if schema == "SkelBindingAPI" {
-                _ = prim.RemoveAPI(TfToken("SkelBindingAPI"), TfToken(""))
-            }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .setGeomSubsetFamilyName(let stageURL, let primPath, let familyName):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let attr = prim.GetAttribute(TfToken("familyName"))
+                if attr.IsValid() {
+                    attr.Set(VtValue(TfToken(std.string(familyName.rawValue))), UsdTimeCode.Default())
+                } else {
+                    let created = prim.CreateAttribute(
+                        TfToken("familyName"), SdfValueTypeName.Token, false,
+                        SdfVariability.SdfVariabilityUniform
+                    )
+                    created.Set(VtValue(TfToken(std.string(familyName.rawValue))), UsdTimeCode.Default())
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            let attr = prim.GetAttribute(TfToken("familyName"))
-            if attr.IsValid() {
-                attr.Set(VtValue(TfToken(std.string(familyName.rawValue))), UsdTimeCode.Default())
-            } else {
-                let created = prim.CreateAttribute(
-                    TfToken("familyName"), SdfValueTypeName.Token, false,
-                    SdfVariability.SdfVariabilityUniform
-                )
-                created.Set(VtValue(TfToken(std.string(familyName.rawValue))), UsdTimeCode.Default())
-            }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .setGeomSubsetFamilyType(let stageURL, let primPath, let familyName, let familyType):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let attrName = "subsetFamily:\(familyName.rawValue):familyType"
+                let attr = prim.GetAttribute(TfToken(attrName))
+                if attr.IsValid() {
+                    attr.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
+                } else {
+                    let created = prim.CreateAttribute(
+                        TfToken(attrName), SdfValueTypeName.Token, false,
+                        SdfVariability.SdfVariabilityUniform
+                    )
+                    created.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            let attrName = "subsetFamily:\(familyName.rawValue):familyType"
-            let attr = prim.GetAttribute(TfToken(attrName))
-            if attr.IsValid() {
-                attr.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
-            } else {
-                let created = prim.CreateAttribute(
-                    TfToken(attrName), SdfValueTypeName.Token, false,
-                    SdfVariability.SdfVariabilityUniform
-                )
-                created.Set(VtValue(TfToken(std.string(familyType.rawValue))), UsdTimeCode.Default())
-            }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .bindMaterial(let stageURL, let primPath, let materialPath, let strength):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-            }
-            let matPrim = stage.GetPrimAtPath(SdfPath(std.string(materialPath.rawValue)))
-            guard matPrim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: materialPath)
-            }
-            let bindingAPI = UsdShadeMaterialBindingAPI.Apply(prim)
-            let mat = UsdShadeMaterial(matPrim)
-            let strengthToken = TfToken(std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue))
-            bindingAPI.Bind(mat, strengthToken, TfToken(""))
-            return USDEditResult(
-                refreshHints: USDEditRefreshHints(
-                    refreshSceneGraph: true,
-                    refreshInspector: true,
-                    changedPrimPaths: [primPath]
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let matPrim = stage.GetPrimAtPath(SdfPath(std.string(materialPath.rawValue)))
+                guard matPrim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: materialPath)
+                }
+                let bindingAPI = UsdShadeMaterialBindingAPI.Apply(prim)
+                let mat = UsdShadeMaterial(matPrim)
+                let strengthToken = TfToken(std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue))
+                bindingAPI.Bind(mat, strengthToken, TfToken(""))
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        refreshSceneGraph: true,
+                        refreshInspector: true,
+                        changedPrimPaths: [primPath]
+                    )
                 )
-            )
+            }
 
         case .setMaterialBindingStrength(let stageURL, let primPath, let strength):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-            }
-            let bindingAPI = UsdShadeMaterialBindingAPI(prim)
-            let strengthToken = TfToken(std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue))
-            var bindingRel = bindingAPI.GetDirectBindingRel()
-            guard bindingRel.IsValid() else {
-                throw SwiftUsdShellError.invalidValue("Missing material binding relationship on \(primPath.rawValue)")
-            }
-            _ = UsdShadeMaterialBindingAPI.SetMaterialBindingStrength(bindingRel, strengthToken)
-            return USDEditResult(
-                refreshHints: USDEditRefreshHints(
-                    refreshInspector: true,
-                    changedPrimPaths: [primPath]
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let bindingAPI = UsdShadeMaterialBindingAPI(prim)
+                let strengthToken = TfToken(std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue))
+                var bindingRel = bindingAPI.GetDirectBindingRel()
+                guard bindingRel.IsValid() else {
+                    throw SwiftUsdShellError.invalidValue("Missing material binding relationship on \(primPath.rawValue)")
+                }
+                _ = UsdShadeMaterialBindingAPI.SetMaterialBindingStrength(bindingRel, strengthToken)
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        refreshInspector: true,
+                        changedPrimPaths: [primPath]
+                    )
                 )
-            )
+            }
 
         case .setVariantSelection(let stageURL, let primPath, let setName, let selectionId):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-            }
-            var variantSets = prim.GetVariantSets()
-            var variantSet = variantSets.GetVariantSet(std.string(setName.rawValue))
-            guard variantSet.IsValid() else {
-                throw SwiftUsdShellError.invalidValue("Failed to access variant set \(setName.rawValue) on \(primPath.rawValue)")
-            }
-            let ok: Bool
-            if let selectionId {
-                ok = variantSet.SetVariantSelection(std.string(selectionId.rawValue))
-            } else {
-                variantSet.ClearVariantSelection()
-                ok = true
-            }
-            guard ok else {
-                throw SwiftUsdShellError.invalidValue("Failed to set variant \(setName.rawValue) = \(selectionId?.rawValue ?? "nil") on \(primPath.rawValue)")
-            }
-            return USDEditResult(
-                refreshHints: USDEditRefreshHints(
-                    refreshSceneGraph: true,
-                    refreshInspector: true,
-                    changedPrimPaths: [primPath]
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                var variantSets = prim.GetVariantSets()
+                var variantSet = variantSets.GetVariantSet(std.string(setName.rawValue))
+                guard variantSet.IsValid() else {
+                    throw SwiftUsdShellError.invalidValue("Failed to access variant set \(setName.rawValue) on \(primPath.rawValue)")
+                }
+                let ok: Bool
+                if let selectionId {
+                    ok = variantSet.SetVariantSelection(std.string(selectionId.rawValue))
+                } else {
+                    variantSet.ClearVariantSelection()
+                    ok = true
+                }
+                guard ok else {
+                    throw SwiftUsdShellError.invalidValue("Failed to set variant \(setName.rawValue) = \(selectionId?.rawValue ?? "nil") on \(primPath.rawValue)")
+                }
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        refreshSceneGraph: true,
+                        refreshInspector: true,
+                        changedPrimPaths: [primPath]
+                    )
                 )
-            )
+            }
 
         case .blockAttribute(let stageURL, let primPath, let attributeName):
-            let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let attr = prim.GetAttribute(TfToken(std.string(attributeName.rawValue)))
+                if attr.IsValid() {
+                    attr.Block()
+                }
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            let attr = prim.GetAttribute(TfToken(std.string(attributeName.rawValue)))
-            if attr.IsValid() {
-                attr.Block()
-            }
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .setActive(let stageURL, let primPath, let active):
-            let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                prim.SetActive(active)
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
             }
-            prim.SetActive(active)
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
 
         case .setAssetPaths(let stageURL, let edits):
             return try setAssetPaths(stageURL: stageURL, edits: edits)
 
         case .save(let stageURL):
-            let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-            stage.Save()
-            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                stage.Save()
+                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
+            }
         }
     }
 
@@ -417,22 +434,23 @@ public final class OpenUSDStageRuntime: Sendable {
         primPath: USDPath,
         value: Bool
     ) throws -> USDEditResult {
-        let stage = try stage(for: stageURL, loadPolicy: .loadAll)
-        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-        guard prim.IsValid() else {
-            throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+        return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let attr = prim.GetAttribute(TfToken("doubleSided"))
+            if attr.IsValid() {
+                attr.Set(VtValue(value), UsdTimeCode.Default())
+            } else {
+                let created = prim.CreateAttribute(
+                    TfToken("doubleSided"), SdfValueTypeName.Bool, false,
+                    SdfVariability.SdfVariabilityUniform
+                )
+                created.Set(VtValue(value), UsdTimeCode.Default())
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
         }
-        let attr = prim.GetAttribute(TfToken("doubleSided"))
-        if attr.IsValid() {
-            attr.Set(VtValue(value), UsdTimeCode.Default())
-        } else {
-            let created = prim.CreateAttribute(
-                TfToken("doubleSided"), SdfValueTypeName.Bool, false,
-                SdfVariability.SdfVariabilityUniform
-            )
-            created.Set(VtValue(value), UsdTimeCode.Default())
-        }
-        return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
     }
 
     public func setAssetPaths(
@@ -442,25 +460,26 @@ public final class OpenUSDStageRuntime: Sendable {
         guard !edits.isEmpty else {
             return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
         }
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
-        var changedPaths = Set<USDPath>()
-        for edit in edits {
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(edit.primPath.rawValue)))
-            guard prim.IsValid() else { continue }
-            let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName.rawValue)))
-            guard attr.IsValid() else { continue }
-            var assetPath = SdfAssetPath(std.string(edit.assetPath))
-            guard attr.Set(&assetPath, UsdTimeCode.Default()) else { continue }
-            changedPaths.insert(edit.primPath)
-        }
-        stage.Save()
-        return USDEditResult(
-            refreshHints: USDEditRefreshHints(
-                refreshInspector: true,
-                changedPrimPaths: Array(changedPaths),
-                changedAssetPaths: edits.map { USDAssetPath($0.assetPath) }
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+            var changedPaths = Set<USDPath>()
+            for edit in edits {
+                let prim = stage.GetPrimAtPath(SdfPath(std.string(edit.primPath.rawValue)))
+                guard prim.IsValid() else { continue }
+                let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName.rawValue)))
+                guard attr.IsValid() else { continue }
+                var assetPath = SdfAssetPath(std.string(edit.assetPath))
+                guard attr.Set(&assetPath, UsdTimeCode.Default()) else { continue }
+                changedPaths.insert(edit.primPath)
+            }
+            stage.Save()
+            return USDEditResult(
+                refreshHints: USDEditRefreshHints(
+                    refreshInspector: true,
+                    changedPrimPaths: Array(changedPaths),
+                    changedAssetPaths: edits.map { USDAssetPath($0.assetPath) }
+                )
             )
-        )
+        }
     }
 
     public func probeCapabilities() -> USDRuntimeCapabilities {
@@ -760,8 +779,9 @@ public final class OpenUSDStageRuntime: Sendable {
     /// Returns stage-level metadata: animation tracks, time codes, up-axis,
     /// meters-per-unit, and default-prim information.
     public func stageMetadata(stageURL: USDStageURL) throws -> USDStageMetadata {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
-        return stageMetadata(stage)
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+            return stageMetadata(stage)
+        }
     }
 
     /// Returns a high-level model summary combining stage metadata, scene bounds,
@@ -1144,8 +1164,28 @@ public final class OpenUSDStageRuntime: Sendable {
     }
 
     // MARK: - Reference operations
+    //
+    // NOTE: Do not introduce a helper that returns a `UsdPrim` from a locally
+    // opened stage. `UsdPrim` is a weak handle to its `UsdStage`; if the
+    // stage's strong refcount drops to zero between open and use (which can
+    // happen when other components clear their share of USD's process-wide
+    // stage cache), the prim dereferences a dead stage and the C++ side
+    // throws across the Swift ABI boundary — fatal with exceptions disabled.
+    // Open the stage *inside* each public method so `stagePtr` is in scope
+    // for the entire usage, as `addReference`/`removeReference` do.
 
-    private func openAndGetPrim(stage: USDStageURL, primPath: USDPath) throws -> UsdPrim {
+    public func primReferences(
+        stage: USDStageURL, primPath: USDPath
+    ) throws -> [USDReference] {
+        // Keep `stagePtr` in this function's scope. A `UsdPrim` is a weak
+        // handle back to its `UsdStage`; if the stage's strong refcount
+        // (held by `stagePtr` here, plus USD's process-wide stage cache)
+        // hits zero — e.g. when another component clears its share of the
+        // cache mid-call — any subsequent prim method dereferences a
+        // dangling stage and throws a C++ exception across the Swift
+        // ABI boundary, aborting (exceptions are disabled). Inlining the
+        // open here, instead of delegating to `openAndGetPrim`, mirrors
+        // the proven pattern in `addReference`/`removeReference`.
         let stagePtr = UsdStage.Open(std.string(stage.url.path), UsdStage.InitialLoadSet.LoadAll)
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
@@ -1156,13 +1196,6 @@ public final class OpenUSDStageRuntime: Sendable {
         guard prim.IsValid() else {
             throw SwiftUsdShellError.primNotFound(stageURL: stage, primPath: primPath)
         }
-        return prim
-    }
-
-    public func primReferences(
-        stage: USDStageURL, primPath: USDPath
-    ) throws -> [USDReference] {
-        let prim = try openAndGetPrim(stage: stage, primPath: primPath)
         guard prim.HasAuthoredReferences() else { return [] }
         return typedAuthoredReferences(on: prim).map { typed in
             USDReference(assetPath: typed.assetPath, primPath: typed.primPath)
@@ -1685,12 +1718,24 @@ private func withSdfChangeBlock<T>(_ body: () throws -> T) rethrows -> T {
 }
 
 private extension OpenUSDStageRuntime {
-    func stage(for stageURL: USDStageURL, loadPolicy: USDLoadPolicy) throws -> UsdStage {
+    /// Opens `stageURL` and invokes `body` with the live `UsdStage` while the
+    /// strong `UsdStageRefPtr` is held in this function's scope.
+    ///
+    /// IMPORTANT: returning a `UsdStage` from a helper is unsafe — `UsdStage`
+    /// is a weak handle, and the strong `UsdStageRefPtr` would drop on return,
+    /// leaving any subsequently-dereferenced prims dangling (a C++ exception
+    /// across the Swift ABI, fatal with exceptions disabled). Use this
+    /// closure-scoped form so the stage stays alive for the whole body.
+    func withStage<T>(
+        for stageURL: USDStageURL,
+        loadPolicy: USDLoadPolicy,
+        _ body: (UsdStage) throws -> T
+    ) throws -> T {
         let stageRef = UsdStage.Open(std.string(stageURL.url.path), openUSDLoadPolicy(loadPolicy))
         guard stageRef._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stageURL, diagnostic: nil)
         }
-        return USDOverlay.Dereference(stageRef)
+        return try body(USDOverlay.Dereference(stageRef))
     }
 
     func stageMetadata(_ stage: UsdStage) -> USDStageMetadata {
@@ -2769,45 +2814,47 @@ private extension OpenUSDStageRuntime {
         stageURL: USDStageURL,
         primPath: USDPath
     ) throws -> (exists: Bool, warnings: [String]) {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadNone)
-        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-        if prim.IsValid() {
-            return (true, [])
+        return try self.withStage(for: stageURL, loadPolicy: .loadNone) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            if prim.IsValid() {
+                return (true, [])
+            }
+            return (false, ["Prim not found at path '\(primPath.rawValue)'"])
         }
-        return (false, ["Prim not found at path '\(primPath.rawValue)'"])
     }
 
     public func shaderInputSource(
         _ query: USDShaderInputSourceQuery
     ) throws -> USDShaderInputSource? {
-        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadNone)
-        let prim = stage.GetPrimAtPath(SdfPath(std.string(query.shaderPath.rawValue)))
-        guard prim.IsValid() else { return nil }
+        return try self.withStage(for: query.stageURL, loadPolicy: .loadNone) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(query.shaderPath.rawValue)))
+            guard prim.IsValid() else { return nil }
 
-        let shader = UsdShadeShader(prim)
-        guard shader.GetPrim().IsValid() else { return nil }
+            let shader = UsdShadeShader(prim)
+            guard shader.GetPrim().IsValid() else { return nil }
 
-        let inputName = query.inputName
-            .replacingOccurrences(of: "inputs:", with: "")
-        let input = shader.GetInput(TfToken(std.string(inputName)))
-        guard input.GetAttr().IsValid(), input.HasConnectedSource() else {
-            return nil
+            let inputName = query.inputName
+                .replacingOccurrences(of: "inputs:", with: "")
+            let input = shader.GetInput(TfToken(std.string(inputName)))
+            guard input.GetAttr().IsValid(), input.HasConnectedSource() else {
+                return nil
+            }
+
+            let sources = input.GetConnectedSources(nil)
+            guard sources.size() > 0 else { return nil }
+
+            let sourceInfo = sources[0]
+            let sourcePrim = sourceInfo.source.GetPrim()
+            guard sourcePrim.IsValid() else { return nil }
+
+            return USDShaderInputSource(
+                sourcePrimPath: USDPath(
+                    stableOwnedString(describing: sourcePrim.GetPath().GetAsString())
+                ),
+                sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
+                sourceShaderIdentifier: shaderIdentifier(sourcePrim)
+            )
         }
-
-        let sources = input.GetConnectedSources(nil)
-        guard sources.size() > 0 else { return nil }
-
-        let sourceInfo = sources[0]
-        let sourcePrim = sourceInfo.source.GetPrim()
-        guard sourcePrim.IsValid() else { return nil }
-
-        return USDShaderInputSource(
-            sourcePrimPath: USDPath(
-                stableOwnedString(describing: sourcePrim.GetPath().GetAsString())
-            ),
-            sourceName: stableOwnedString(describing: sourceInfo.sourceName.GetString()),
-            sourceShaderIdentifier: shaderIdentifier(sourcePrim)
-        )
     }
 
     /// Finds prims in the stage that carry composition-arc references to
@@ -2819,7 +2866,7 @@ private extension OpenUSDStageRuntime {
         assetPath: String,
         outputURL: USDStageURL
     ) throws -> (changedPrimPaths: [String], warnings: [String]) {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
         var overrides: [USDSparseOverride] = []
         var warnings: [String] = []
 
@@ -2867,6 +2914,7 @@ private extension OpenUSDStageRuntime {
             changedPrimPaths: overrides.map(\.primPath.rawValue),
             warnings: warnings
         )
+        }
     }
 
     /// Builds typed sparse overrides that remove every composition-arc
@@ -2884,7 +2932,7 @@ private extension OpenUSDStageRuntime {
         missingFilePath: String,
         outputURL: USDStageURL
     ) throws -> (changedPrimPaths: [String], clearedAttributeCount: Int, warnings: [String]) {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
         var primOverrides: [USDPath: USDSparseOverride] = [:]
         var orderedPaths: [USDPath] = []
         var warnings: [String] = []
@@ -2999,6 +3047,7 @@ private extension OpenUSDStageRuntime {
             clearedAttributeCount: clearedCount,
             warnings: warnings
         )
+        }
     }
 
     /// Clears authored asset / string / token attribute values that point at
@@ -3017,7 +3066,7 @@ private extension OpenUSDStageRuntime {
         missingFilePath: String,
         outputURL: USDStageURL
     ) throws -> (changedPrimPaths: [String], clearedAttributeCount: Int, warnings: [String]) {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
         var overrides: [USDSparseOverride] = []
         var warnings: [String] = []
         var clearedCount = 0
@@ -3093,6 +3142,7 @@ private extension OpenUSDStageRuntime {
             clearedAttributeCount: clearedCount,
             warnings: warnings
         )
+        }
     }
 
     /// Validates material binding conformance on Mesh and GeomSubset prims.
@@ -3103,47 +3153,49 @@ private extension OpenUSDStageRuntime {
         primPath: USDPath,
         schemaName: String
     ) throws -> Bool {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadNone)
-        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-        guard prim.IsValid() else { return false }
-        if prim.HasAPI(TfToken(std.string(schemaName))) {
-            return true
-        }
-        let target = schemaName.lowercased()
-        let appliedSchemas = prim.GetAppliedSchemas()
-        for index in 0..<appliedSchemas.size() {
-            let schema = appliedSchemas[index]
-            if stableOwnedString(describing: schema.GetString()).lowercased() == target {
+        return try self.withStage(for: stageURL, loadPolicy: .loadNone) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else { return false }
+            if prim.HasAPI(TfToken(std.string(schemaName))) {
                 return true
             }
+            let target = schemaName.lowercased()
+            let appliedSchemas = prim.GetAppliedSchemas()
+            for index in 0..<appliedSchemas.size() {
+                let schema = appliedSchemas[index]
+                if stableOwnedString(describing: schema.GetString()).lowercased() == target {
+                    return true
+                }
+            }
+            return false
         }
-        return false
     }
 
     /// Reads the authored default value of a single attribute on a prim.
     /// Returns `nil` when the attribute does not exist or has no value.
     public func attributeValue(_ query: USDAttributeValueQuery) throws -> USDValue? {
-        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadNone)
-        let prim = stage.GetPrimAtPath(SdfPath(std.string(query.primPath.rawValue)))
-        guard prim.IsValid() else { return nil }
-        let attr = prim.GetAttribute(TfToken(std.string(query.attributeName)))
-        guard attr.IsValid() else { return nil }
+        return try self.withStage(for: query.stageURL, loadPolicy: .loadNone) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(query.primPath.rawValue)))
+            guard prim.IsValid() else { return nil }
+            let attr = prim.GetAttribute(TfToken(std.string(query.attributeName)))
+            guard attr.IsValid() else { return nil }
 
-        let typeName = String(attr.GetTypeName().GetAsToken().GetString())
-        if typeName == "asset" {
-            var assetPath = SdfAssetPath()
-            guard attr.Get(&assetPath, UsdTimeCode.Default()) else { return nil }
-            let authored = stableOwnedString(describing: assetPath.GetAssetPath())
-            if authored.isEmpty {
-                let resolved = stableOwnedString(describing: assetPath.GetResolvedPath())
-                return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
+            let typeName = String(attr.GetTypeName().GetAsToken().GetString())
+            if typeName == "asset" {
+                var assetPath = SdfAssetPath()
+                guard attr.Get(&assetPath, UsdTimeCode.Default()) else { return nil }
+                let authored = stableOwnedString(describing: assetPath.GetAssetPath())
+                if authored.isEmpty {
+                    let resolved = stableOwnedString(describing: assetPath.GetResolvedPath())
+                    return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
+                }
+                return .assetPath(USDAssetPath(authored))
             }
-            return .assetPath(USDAssetPath(authored))
-        }
 
-        var vtValue = VtValue()
-        guard attr.Get(&vtValue, UsdTimeCode.Default()) else { return nil }
-        return convertVtValueToUSDValue(vtValue)
+            var vtValue = VtValue()
+            guard attr.Get(&vtValue, UsdTimeCode.Default()) else { return nil }
+            return convertVtValueToUSDValue(vtValue)
+        }
     }
 
     /// Rewrites the declared USD type of attributes on prims and writes a
@@ -3151,7 +3203,7 @@ private extension OpenUSDStageRuntime {
     public func rewriteAttributeTypes(
         _ request: USDAttributeTypeRewriteRequest
     ) throws -> USDAttributeTypeRewriteResult {
-        let stage = try self.stage(for: request.stageURL, loadPolicy: .loadNone)
+        return try self.withStage(for: request.stageURL, loadPolicy: .loadNone) { stage in
 
         var changedPrimPaths: [String] = []
         var warnings: [String] = []
@@ -3209,6 +3261,7 @@ private extension OpenUSDStageRuntime {
             changedPrimPaths: changedPrimPaths,
             warnings: warnings
         )
+        }
     }
 
     /// Rewrites the declared USD type of attributes on prims, preserving the
@@ -3220,7 +3273,7 @@ private extension OpenUSDStageRuntime {
     public func rewriteAttributeTypesInLayer(
         _ request: USDAttributeTypeRewriteRequest
     ) throws -> USDAttributeTypeRewriteResult {
-        let stage = try self.stage(for: request.stageURL, loadPolicy: .loadAll)
+        return try self.withStage(for: request.stageURL, loadPolicy: .loadAll) { stage in
         let rootLayerHandle = stage.GetRootLayer()
         let rootLayer = USDOverlay.Dereference(rootLayerHandle)
 
@@ -3256,6 +3309,7 @@ private extension OpenUSDStageRuntime {
             changedPrimPaths: changedPrimPaths,
             warnings: warnings
         )
+        }
     }
 
     /// Finds shader inputs whose authored type matches `currentTypeName` and
@@ -3263,30 +3317,31 @@ private extension OpenUSDStageRuntime {
     public func shaderInputTypeRewrites(
         _ query: USDShaderInputTypeRewriteQuery
     ) throws -> [USDAttributeTypeRewrite] {
-        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadAll)
-        guard let currentTypeName = sdfValueTypeName(named: query.currentTypeName) else {
-            throw SwiftUsdShellError.invalidValue("Unknown current type name '\(query.currentTypeName)'")
+        return try self.withStage(for: query.stageURL, loadPolicy: .loadAll) { stage in
+            guard let currentTypeName = sdfValueTypeName(named: query.currentTypeName) else {
+                throw SwiftUsdShellError.invalidValue("Unknown current type name '\(query.currentTypeName)'")
+            }
+            guard sdfValueTypeName(named: query.targetTypeName) != nil else {
+                throw SwiftUsdShellError.invalidValue("Unknown target type name '\(query.targetTypeName)'")
+            }
+
+            let inputBaseName = shaderInputBaseName(query.inputName)
+            let inputAttrName = "inputs:\(inputBaseName)"
+            var rewrites: [USDAttributeTypeRewrite] = []
+
+            let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
+            collectShaderInputTypeRewrites(
+                stage: stage,
+                rootLayer: rootLayer,
+                inputAttrName: inputAttrName,
+                currentTypeName: currentTypeName,
+                targetTypeName: query.targetTypeName,
+                shaderIdentifierPrefix: query.shaderIdentifierPrefix,
+                rewrites: &rewrites
+            )
+
+            return rewrites
         }
-        guard sdfValueTypeName(named: query.targetTypeName) != nil else {
-            throw SwiftUsdShellError.invalidValue("Unknown target type name '\(query.targetTypeName)'")
-        }
-
-        let inputBaseName = shaderInputBaseName(query.inputName)
-        let inputAttrName = "inputs:\(inputBaseName)"
-        var rewrites: [USDAttributeTypeRewrite] = []
-
-        let rootLayer = USDOverlay.Dereference(stage.GetRootLayer())
-        collectShaderInputTypeRewrites(
-            stage: stage,
-            rootLayer: rootLayer,
-            inputAttrName: inputAttrName,
-            currentTypeName: currentTypeName,
-            targetTypeName: query.targetTypeName,
-            shaderIdentifierPrefix: query.shaderIdentifierPrefix,
-            rewrites: &rewrites
-        )
-
-        return rewrites
     }
 
     /// Flattens a nested shader by copying the child shader prim spec to a
@@ -3298,7 +3353,7 @@ private extension OpenUSDStageRuntime {
         childPath: USDPath,
         outputURL: USDStageURL
     ) throws -> USDPath {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
         let oldSdfPath = SdfPath(std.string(childPath.rawValue))
         let parentSdfPath = SdfPath(std.string(parentPath.rawValue))
         let destinationParent = parentSdfPath.GetParentPath()
@@ -3342,6 +3397,7 @@ private extension OpenUSDStageRuntime {
         }
 
         return USDPath(stableOwnedString(describing: newSdfPath.GetAsString()))
+        }
     }
 
     /// Authors a sparse material-binding edit layer using `UsdShadeMaterialBindingAPI`.
@@ -3418,27 +3474,28 @@ private extension OpenUSDStageRuntime {
     public func materialSurfaceShader(
         _ query: USDMaterialSurfaceShaderQuery
     ) throws -> USDMaterialSurfaceShader? {
-        let stage = try self.stage(for: query.stageURL, loadPolicy: .loadNone)
-        let prim = stage.GetPrimAtPath(SdfPath(std.string(query.materialPath.rawValue)))
-        guard prim.IsValid() else { return nil }
+        return try self.withStage(for: query.stageURL, loadPolicy: .loadNone) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(query.materialPath.rawValue)))
+            guard prim.IsValid() else { return nil }
 
-        let material = UsdShadeMaterial(prim)
-        guard material.GetPrim().IsValid() else { return nil }
+            let material = UsdShadeMaterial(prim)
+            guard material.GetPrim().IsValid() else { return nil }
 
-        let shader = material.ComputeSurfaceSource(
-            TfToken(std.string(query.renderContext.rawValue)),
-            nil as UnsafeMutablePointer<TfToken>?,
-            nil as UnsafeMutablePointer<UsdShadeAttributeType>?
-        )
-        let shaderPrim = shader.GetPrim()
-        guard shaderPrim.IsValid() else { return nil }
+            let shader = material.ComputeSurfaceSource(
+                TfToken(std.string(query.renderContext.rawValue)),
+                nil as UnsafeMutablePointer<TfToken>?,
+                nil as UnsafeMutablePointer<UsdShadeAttributeType>?
+            )
+            let shaderPrim = shader.GetPrim()
+            guard shaderPrim.IsValid() else { return nil }
 
-        return USDMaterialSurfaceShader(
-            shaderPath: USDPath(
-                stableOwnedString(describing: shaderPrim.GetPath().GetAsString())
-            ),
-            shaderIdentifier: shaderIdentifier(shaderPrim)
-        )
+            return USDMaterialSurfaceShader(
+                shaderPath: USDPath(
+                    stableOwnedString(describing: shaderPrim.GetPath().GetAsString())
+                ),
+                shaderIdentifier: shaderIdentifier(shaderPrim)
+            )
+        }
     }
 
     private func generateSparseUSDA(_ request: USDSparseLayerRequest) -> String {
@@ -3745,7 +3802,7 @@ private extension OpenUSDStageRuntime {
     public func prepareViewportMaterialXBlocking(
         stageURL: USDStageURL
     ) throws -> USDViewportMaterialXBlockingResult {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
 
         let mtlxOutputNames: [String] = [
             "outputs:mtlx:surface",
@@ -3820,6 +3877,7 @@ private extension OpenUSDStageRuntime {
             blockedMaterialInputCount: blockedMaterialInputCount,
             deactivatedShaderCount: deactivatedShaderCount
         )
+        }
     }
 
     /// Authors missing `UsdUVTexture` defaults required for normal-map
@@ -3832,7 +3890,7 @@ private extension OpenUSDStageRuntime {
     public func authorUsdUVTextureNormalMapDefaults(
         stageURL: USDStageURL
     ) throws -> USDViewportNormalMapNormalizationResult {
-        let stage = try self.stage(for: stageURL, loadPolicy: .loadAll)
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
         let rootLayerHandle = stage.GetRootLayer()
         guard Bool(rootLayerHandle) else {
             throw SwiftUsdShellError.invalidValue(
@@ -3859,6 +3917,7 @@ private extension OpenUSDStageRuntime {
         return USDViewportNormalMapNormalizationResult(
             normalizedShaderCount: normalizedShaderCount
         )
+        }
     }
 
 }
