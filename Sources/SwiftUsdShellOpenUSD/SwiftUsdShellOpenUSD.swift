@@ -98,6 +98,25 @@ private struct SparsePrimNode {
     }
 }
 
+private struct MaterialBindingInfoPayload: Decodable {
+    var ok: Bool
+    var selectedPrimPath: String?
+    var effectiveMaterialPath: String?
+    var authoredMaterialPath: String?
+    var bindingSourcePrimPath: String?
+    var bindingStrength: String?
+    var error: String?
+}
+
+private func nonEmptyUSDPath(_ value: String) -> USDPath? {
+    value.isEmpty ? nil : USDPath(value)
+}
+
+private func materialBindingStrength(_ value: String) -> USDMaterialBindingStrength? {
+    guard !value.isEmpty else { return nil }
+    return USDMaterialBindingStrength(rawValue: value) ?? .fallbackStrength
+}
+
 /// Mechanical runtime adapter that answers SwiftUsdShell requests with OpenUSD.
 ///
 /// This target may import SwiftUsd/OpenUSD. The base SwiftUsdShell target must
@@ -1064,11 +1083,27 @@ public final class OpenUSDStageRuntime: Sendable {
         guard stagePtr._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
         }
-        let prim = USDOverlay.Dereference(stagePtr).GetPrimAtPath(
-            SdfPath(std.string(primPath.rawValue))
+        let json = USDOverlay.UsdShadeMaterialBindingWrapper.BindingInfoJSON(
+            stagePtr,
+            std.string(primPath.rawValue)
         )
-        guard prim.IsValid() else { return nil }
-        return materialBindingInfo(for: prim, selectedPath: primPath)
+        let payload = try JSONDecoder().decode(
+            MaterialBindingInfoPayload.self,
+            from: Data(stableOwnedString(describing: json).utf8)
+        )
+        guard payload.ok else { return nil }
+        let sourcePath = payload.bindingSourcePrimPath.flatMap(nonEmptyUSDPath)
+        var strength = payload.bindingStrength.flatMap(materialBindingStrength)
+        if sourcePath != nil, sourcePath != USDPath(payload.selectedPrimPath ?? primPath.rawValue), strength == .fallbackStrength {
+            strength = .weakerThanDescendants
+        }
+        return USDMaterialBindingInfo(
+            selectedPrimPath: USDPath(payload.selectedPrimPath ?? primPath.rawValue),
+            effectiveMaterialPath: payload.effectiveMaterialPath.flatMap(nonEmptyUSDPath),
+            authoredMaterialPath: payload.authoredMaterialPath.flatMap(nonEmptyUSDPath),
+            bindingSourcePrimPath: sourcePath,
+            bindingStrength: strength
+        )
     }
 
 
