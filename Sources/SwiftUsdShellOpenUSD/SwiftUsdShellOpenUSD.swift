@@ -16,6 +16,7 @@ typealias UsdAttribute = pxr.UsdAttribute
 typealias UsdTimeCode = pxr.UsdTimeCode
 typealias UsdGeomImageable = pxr.UsdGeomImageable
 typealias UsdGeomMesh = pxr.UsdGeomMesh
+typealias UsdGeomSubset = pxr.UsdGeomSubset
 typealias UsdGeomXformCommonAPI = pxr.UsdGeomXformCommonAPI
 typealias UsdShadeConnectableAPI = pxr.UsdShadeConnectableAPI
 typealias SdfReference = pxr.SdfReference
@@ -1706,6 +1707,12 @@ private func normalizedPackagedAssetPath(_ archiveMemberPath: String) -> String?
 
 private func fileModificationDate(_ url: URL) -> Date? {
     try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+}
+
+private func normalizedPrimPath(_ rawValue: String) -> String {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return "/" }
+    return trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
 }
 
 /// Groups authored `Sdf` edits so notices and invalidations are emitted
@@ -3405,6 +3412,335 @@ private extension OpenUSDStageRuntime {
     /// This intentionally goes through OpenUSD's schema API instead of hand-emitting
     /// `material:binding` USDA. `Bind` owns the exact relationship name, purpose, and
     /// binding-strength metadata semantics for the active OpenUSD version.
+    public func applyRepairBatch(
+        _ request: USDStageRepairBatchRequest
+    ) throws -> USDStageRepairBatchResult {
+        try withStage(for: request.stageURL, loadPolicy: .loadAll) { sourceStage in
+            let editStagePtr = UsdStage.CreateInMemory(
+                std.string("batch_repair.usda"),
+                UsdStage.InitialLoadSet.LoadAll
+            )
+            guard editStagePtr._isNonnull() else {
+                throw SwiftUsdShellError.stageOpenFailed(request.outputURL, diagnostic: "in-memory-stage")
+            }
+
+            let editStage = USDOverlay.Dereference(editStagePtr)
+            let sourceRootLayer = sourceStage.GetRootLayer()
+            let editRootLayer = editStage.GetRootLayer()
+
+            var appliedCount = 0
+            var skippedCount = 0
+            var changedPrimPaths: [USDPath] = []
+            var warnings: [String] = []
+
+            func record(_ primPath: USDPath?) {
+                appliedCount += 1
+                if let primPath, !changedPrimPaths.contains(primPath) {
+                    changedPrimPaths.append(primPath)
+                }
+            }
+
+            func skip(_ message: String) {
+                skippedCount += 1
+                warnings.append(message)
+            }
+
+            try withSdfChangeBlock {
+                for operation in request.operations {
+                    switch operation {
+                    case .setUpAxis(let axis):
+                        let normalizedAxis = axis.rawValue.uppercased() == "Z" ? "Z" : "Y"
+                        editStage.SetMetadata(TfToken("upAxis"), VtValue(TfToken(normalizedAxis)))
+                        record(nil)
+
+                    case .setMetersPerUnit(let value):
+                        guard value.isFinite, value > 0 else {
+                            skip("Invalid metersPerUnit value: \(value)")
+                            continue
+                        }
+                        editStage.SetMetadata(TfToken("metersPerUnit"), VtValue(value))
+                        record(nil)
+
+                    case .setDefaultPrim(let path):
+                        let normalized = normalizedPrimPath(path.rawValue)
+                        let prim = editStage.OverridePrim(SdfPath(std.string(normalized)))
+                        guard prim.IsValid() else {
+                            skip("Could not create defaultPrim override at \(path.rawValue)")
+                            continue
+                        }
+                        editStage.SetDefaultPrim(prim)
+                        record(USDPath(normalized))
+
+                    case .applySchema(let primPath, let schemaName):
+                        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        guard prim.IsValid() else {
+                            skip("Could not create schema override at \(primPath.rawValue)")
+                            continue
+                        }
+                        switch schemaName.rawValue {
+                        case "MaterialBindingAPI":
+                            guard UsdShadeMaterialBindingAPI.CanApply(prim) else {
+                                skip("MaterialBindingAPI cannot apply to \(primPath.rawValue)")
+                                continue
+                            }
+                            _ = UsdShadeMaterialBindingAPI.Apply(prim)
+                            record(primPath)
+                        case "SkelBindingAPI":
+                            _ = pxr.UsdSkelBindingAPI.Apply(prim)
+                            record(primPath)
+                        default:
+                            if prim.ApplyAPI(TfToken(std.string(schemaName.rawValue))) {
+                                record(primPath)
+                            } else {
+                                skip("Unsupported schema \(schemaName.rawValue) at \(primPath.rawValue)")
+                            }
+                        }
+
+                    case .removeSchema(let primPath, let schemaName):
+                        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        guard prim.IsValid() else {
+                            skip("Could not create schema-removal override at \(primPath.rawValue)")
+                            continue
+                        }
+                        if prim.RemoveAPI(TfToken(std.string(schemaName.rawValue))) {
+                            record(primPath)
+                        } else {
+                            skip("Could not remove schema \(schemaName.rawValue) at \(primPath.rawValue)")
+                        }
+
+                    case .setGeomSubsetFamilyName(let primPath, let familyName):
+                        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        guard prim.IsValid() else {
+                            skip("Could not create GeomSubset override at \(primPath.rawValue)")
+                            continue
+                        }
+                        let subset = UsdGeomSubset(prim)
+                        guard USDOverlay.GetPrim(subset).IsValid() else {
+                            skip("Prim is not a GeomSubset: \(primPath.rawValue)")
+                            continue
+                        }
+                        let attr = subset.CreateFamilyNameAttr(
+                            VtValue(TfToken(std.string(familyName.rawValue))),
+                            false
+                        )
+                        guard attr.IsDefined() else {
+                            skip("Could not author familyName on \(primPath.rawValue)")
+                            continue
+                        }
+                        record(primPath)
+
+                    case .setGeomSubsetFamilyType(let primPath, let familyName, let familyType):
+                        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        guard prim.IsValid() else {
+                            skip("Could not create imageable override at \(primPath.rawValue)")
+                            continue
+                        }
+                        let imageable = UsdGeomImageable(prim)
+                        guard USDOverlay.GetPrim(imageable).IsValid() else {
+                            skip("Prim is not imageable: \(primPath.rawValue)")
+                            continue
+                        }
+                        guard UsdGeomSubset.SetFamilyType(
+                            imageable,
+                            TfToken(std.string(familyName.rawValue)),
+                            TfToken(std.string(familyType.rawValue))
+                        ) else {
+                            skip("Could not author family type \(familyName.rawValue)=\(familyType.rawValue) at \(primPath.rawValue)")
+                            continue
+                        }
+                        record(primPath)
+
+                    case .setDoubleSided(let primPath, let value):
+                        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        guard prim.IsValid() else {
+                            skip("Could not create doubleSided override at \(primPath.rawValue)")
+                            continue
+                        }
+                        let attr = prim.CreateAttribute(
+                            TfToken("doubleSided"),
+                            SdfValueTypeName.Bool,
+                            false,
+                            SdfVariability.SdfVariabilityUniform
+                        )
+                        attr.Set(VtValue(value), UsdTimeCode.Default())
+                        record(primPath)
+
+                    case .setSubdivisionScheme(let primPath, let scheme):
+                        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        guard prim.IsValid() else {
+                            skip("Could not create subdivision override at \(primPath.rawValue)")
+                            continue
+                        }
+                        let attr = prim.CreateAttribute(
+                            TfToken("subdivisionScheme"),
+                            SdfValueTypeName.Token,
+                            false,
+                            SdfVariability.SdfVariabilityUniform
+                        )
+                        attr.Set(VtValue(TfToken(std.string(scheme.rawValue))), UsdTimeCode.Default())
+                        record(primPath)
+
+                    case .bindMaterial(let primPath, let materialPath, let strength):
+                        let prim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        guard prim.IsValid() else {
+                            skip("Could not create material-binding override at \(primPath.rawValue)")
+                            continue
+                        }
+                        let materialPrim = editStage.OverridePrim(SdfPath(std.string(materialPath.rawValue)))
+                        let bindingAPI = UsdShadeMaterialBindingAPI.Apply(prim)
+                        let strengthToken = TfToken(
+                            std.string(strength == .fallbackStrength ? "fallbackStrength" : strength.rawValue)
+                        )
+                        guard bindingAPI.Bind(UsdShadeMaterial(materialPrim), strengthToken, TfToken("")) else {
+                            skip("Could not bind \(materialPath.rawValue) to \(primPath.rawValue)")
+                            continue
+                        }
+                        record(primPath)
+
+                    case .rewriteAttributeType(let primPath, let attributeName, let targetTypeName):
+                        let sourcePrim = sourceStage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                        guard sourcePrim.IsValid() else {
+                            skip("Prim not found for attribute rewrite: \(primPath.rawValue)")
+                            continue
+                        }
+                        let sourceAttr = sourcePrim.GetAttribute(TfToken(std.string(attributeName)))
+                        guard sourceAttr.IsValid() else {
+                            skip("Attribute \(attributeName) not found at \(primPath.rawValue)")
+                            continue
+                        }
+                        guard let targetType = sdfValueTypeName(named: targetTypeName) else {
+                            skip("Unknown target type \(targetTypeName) for \(attributeName) at \(primPath.rawValue)")
+                            continue
+                        }
+                        let editPrim = editStage.OverridePrim(SdfPath(std.string(primPath.rawValue)))
+                        let editAttr = editPrim.CreateAttribute(
+                            TfToken(std.string(attributeName)),
+                            targetType,
+                            sourceAttr.IsCustom(),
+                            sourceAttr.GetVariability()
+                        )
+                        if let value = rewrittenAttributeValue(
+                            from: sourceAttr,
+                            sourceTypeName: sourceAttr.GetTypeName(),
+                            targetTypeName: targetType
+                        ) {
+                            editAttr.Set(value, UsdTimeCode.Default())
+                        }
+                        record(primPath)
+
+                    case .flattenNestedShader(let parentPath, let childPath):
+                        let oldSdfPath = SdfPath(std.string(childPath.rawValue))
+                        let parentSdfPath = SdfPath(std.string(parentPath.rawValue))
+                        let shaderName = childPath.rawValue.components(separatedBy: "/").last ?? "Shader"
+                        let newSdfPath = parentSdfPath.GetParentPath().AppendChild(TfToken(std.string(shaderName)))
+                        guard pxr.SdfCopySpec(sourceRootLayer, oldSdfPath, editRootLayer, newSdfPath) else {
+                            skip("SdfCopySpec failed for \(childPath.rawValue)")
+                            continue
+                        }
+                        let oldPrim = editStage.OverridePrim(oldSdfPath)
+                        _ = oldPrim.SetActive(false)
+                        record(childPath)
+
+                    case .inlineMaterialInputs(let materialPath):
+                        let count = inlineMaterialInputs(
+                            materialPath: materialPath,
+                            sourceStage: sourceStage,
+                            editStage: editStage
+                        )
+                        if count > 0 {
+                            record(materialPath)
+                        } else {
+                            skip("No inlineable material inputs at \(materialPath.rawValue)")
+                        }
+                    }
+                }
+            }
+
+            guard appliedCount > 0 else {
+                throw SwiftUsdShellError.invalidValue(
+                    "No repair operations were applied. skipped=\(skippedCount)"
+                )
+            }
+
+            guard editStage.Export(std.string(request.outputURL.url.path), false, SdfLayer.FileFormatArguments()) else {
+                throw SwiftUsdShellError.invalidValue(
+                    "Failed to export repair batch layer to \(request.outputURL.url.lastPathComponent)"
+                )
+            }
+
+            return USDStageRepairBatchResult(
+                appliedCount: appliedCount,
+                skippedCount: skippedCount,
+                changedPrimPaths: changedPrimPaths,
+                warnings: warnings
+            )
+        }
+    }
+
+    private func inlineMaterialInputs(
+        materialPath: USDPath,
+        sourceStage: UsdStage,
+        editStage: UsdStage
+    ) -> Int {
+        let materialPrim = sourceStage.GetPrimAtPath(SdfPath(std.string(materialPath.rawValue)))
+        guard materialPrim.IsValid() else { return 0 }
+        let material = UsdShadeMaterial(materialPrim)
+        guard material.GetPrim().IsValid() else { return 0 }
+
+        let surfaceShader = material.ComputeSurfaceSource(
+            TfToken(""),
+            nil as UnsafeMutablePointer<TfToken>?,
+            nil as UnsafeMutablePointer<UsdShadeAttributeType>?
+        )
+        guard surfaceShader.GetPrim().IsValid() else { return 0 }
+
+        let shaderPath = surfaceShader.GetPrim().GetPath()
+        let colorInputNames = ["diffuseColor", "emissiveColor", "specularColor"]
+        let scalarInputNames = ["metallic", "roughness", "opacity", "clearcoat", "clearcoatRoughness", "ior"]
+        let normalInputNames = ["normal"]
+        var inlinedCount = 0
+
+        func tryInlineInput(_ inputName: String, typeName: SdfValueTypeName) {
+            let shaderInput = surfaceShader.GetInput(TfToken(std.string(inputName)))
+            guard shaderInput.IsDefined(), shaderInput.HasConnectedSource() else { return }
+            let sources = shaderInput.GetConnectedSources(nil as UnsafeMutablePointer<SdfPathVector>?)
+            guard sources.size() > 0 else { return }
+            let sourceInfo = sources[0]
+            let sourcePrim = USDOverlay.GetPrim(sourceInfo.source)
+            guard sourcePrim.IsValid(),
+                  stableOwnedString(describing: sourcePrim.GetPath().GetAsString()) == materialPath.rawValue
+            else { return }
+
+            let sourceInputName = stableOwnedString(describing: sourceInfo.sourceName.GetString())
+            let materialInput = material.GetInput(TfToken(std.string(sourceInputName)))
+            guard materialInput.IsDefined(), !materialInput.HasConnectedSource() else { return }
+            let materialAttr = materialInput.GetAttr()
+            guard materialAttr.IsValid(), materialAttr.GetNumTimeSamples() <= 1 else { return }
+
+            var value = VtValue()
+            guard materialAttr.Get(&value, UsdTimeCode.Default()) else { return }
+
+            let editPrim = editStage.OverridePrim(shaderPath)
+            var editShader = UsdShadeShader(editPrim)
+            let editInput = editShader.CreateInput(TfToken(std.string(inputName)), typeName)
+            editInput.Set(value, UsdTimeCode.Default())
+            _ = editInput.GetAttr().ClearConnections()
+            inlinedCount += 1
+        }
+
+        for name in colorInputNames {
+            tryInlineInput(name, typeName: SdfValueTypeName.Color3f)
+        }
+        for name in scalarInputNames {
+            tryInlineInput(name, typeName: SdfValueTypeName.Float)
+        }
+        for name in normalInputNames {
+            tryInlineInput(name, typeName: SdfValueTypeName.Normal3f)
+        }
+
+        return inlinedCount
+    }
+
     public func writeMaterialBindingLayer(
         outputURL: USDStageURL,
         primPath: USDPath,
