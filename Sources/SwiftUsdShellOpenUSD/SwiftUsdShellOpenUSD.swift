@@ -2544,6 +2544,23 @@ private extension OpenUSDStageRuntime {
             let input = inputs[index]
             let name = stableOwnedString(describing: input.GetBaseName().GetString())
 
+            // Match renderer (Hydra) semantics: when an input has a connected
+            // source, follow the connection before falling back to the
+            // attribute's authored value. Otherwise a leftover stronger value
+            // opinion (e.g. a prior color edit) would shadow a newly authored
+            // texture connection and the inspector would disagree with the viewport.
+            if input.HasConnectedSource(),
+               let texture = textureProperty(input, depth: 0) {
+                properties.append(
+                    USDMaterialPropertySummary(
+                        name: name,
+                        propertyType: .texture,
+                        value: texture
+                    )
+                )
+                continue
+            }
+
             if let property = materialProperty(input) {
                 properties.append(property)
                 continue
