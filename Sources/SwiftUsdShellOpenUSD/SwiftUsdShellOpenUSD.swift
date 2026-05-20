@@ -611,10 +611,20 @@ public final class OpenUSDStageRuntime: Sendable {
         #endif
     }
 
-    public func registerPlugin(at url: USDStageURL) -> Bool {
+    public func registerPlugins(at url: USDStageURL) -> Int {
         let pluginPath = std.string(url.url.path)
         let plugins = pxr.PlugRegistry.GetInstance().RegisterPlugins(pluginPath)
-        return !plugins.empty()
+        return Int(plugins.size())
+    }
+
+    public func registerPlugin(at url: USDStageURL) -> Bool {
+        registerPlugins(at: url) > 0
+    }
+
+    public func hasFileFormat(_ formatIdentifier: String) -> Bool {
+        guard !formatIdentifier.isEmpty else { return false }
+        let token = pxr.TfToken(std.string(formatIdentifier))
+        return pxr.SdfFileFormat.FindById(token)._isNonnull()
     }
 
     public func remapSkeletonPaths(
