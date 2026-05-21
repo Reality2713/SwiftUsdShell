@@ -468,8 +468,8 @@ public final class OpenUSDStageRuntime: Sendable {
                 guard prim.IsValid() else { continue }
                 let attr = prim.GetAttribute(TfToken(std.string(edit.attributeName.rawValue)))
                 guard attr.IsValid() else { continue }
-                var assetPath = SdfAssetPath(std.string(edit.assetPath))
-                guard attr.Set(&assetPath, UsdTimeCode.Default()) else { continue }
+                let assetPath = SdfAssetPath(std.string(edit.assetPath))
+                guard attr.Set(assetPath, UsdTimeCode.Default()) else { continue }
                 changedPaths.insert(edit.primPath)
             }
             stage.Save()
@@ -3747,12 +3747,16 @@ private extension OpenUSDStageRuntime {
             var value = VtValue()
             guard materialAttr.Get(&value, UsdTimeCode.Default()) else { return }
 
-            let editPrim = editStage.DefinePrim(shaderPath, TfToken("Shader"))
+            let editPrim = editStage.OverridePrim(shaderPath)
             guard editPrim.IsValid() else { return }
-            var editShader = UsdShadeShader(editPrim)
-            let editInput = editShader.CreateInput(TfToken(std.string(inputName)), typeName)
-            editInput.Set(value, UsdTimeCode.Default())
-            _ = editInput.GetAttr().ClearConnections()
+            let editAttr = editPrim.CreateAttribute(
+                TfToken(std.string("inputs:\(inputName)")),
+                typeName,
+                false,
+                SdfVariability.SdfVariabilityVarying
+            )
+            editAttr.Set(value, UsdTimeCode.Default())
+            _ = editAttr.ClearConnections()
             inlinedCount += 1
         }
 
