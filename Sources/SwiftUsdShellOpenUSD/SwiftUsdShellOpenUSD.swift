@@ -3747,7 +3747,8 @@ private extension OpenUSDStageRuntime {
             var value = VtValue()
             guard materialAttr.Get(&value, UsdTimeCode.Default()) else { return }
 
-            let editPrim = editStage.OverridePrim(shaderPath)
+            let editPrim = editStage.DefinePrim(shaderPath, TfToken("Shader"))
+            guard editPrim.IsValid() else { return }
             var editShader = UsdShadeShader(editPrim)
             let editInput = editShader.CreateInput(TfToken(std.string(inputName)), typeName)
             editInput.Set(value, UsdTimeCode.Default())
