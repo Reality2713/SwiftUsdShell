@@ -5,7 +5,7 @@ import simd
 import SwiftUsdShell
 
 typealias USDOverlay = OpenUSD.Overlay
-typealias pxr = pxrInternal_v0_26_3__pxrReserved__
+typealias pxr = pxrInternal_v0_26_5__pxrReserved__
 
 typealias UsdStage = pxr.UsdStage
 typealias UsdStageRefPtr = pxr.UsdStageRefPtr
