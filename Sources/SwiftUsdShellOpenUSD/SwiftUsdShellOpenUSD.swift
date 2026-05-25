@@ -2481,8 +2481,7 @@ private extension OpenUSDStageRuntime {
         var summaries: [USDMaterialSummary] = []
 
         func visit(_ prim: UsdPrim) {
-            if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Material",
-               let summary = materialSummary(prim) {
+            if let summary = materialSummary(prim) {
                 summaries.append(summary)
             }
 
@@ -2513,6 +2512,11 @@ private extension OpenUSDStageRuntime {
     func materialSummary(_ materialPrim: UsdPrim) -> USDMaterialSummary? {
         let material = UsdShadeMaterial(materialPrim)
         guard material.GetPrim().IsValid() else {
+            return nil
+        }
+        let typeName = stableOwnedString(describing: materialPrim.GetTypeName().GetString())
+        let surfaceShader = material.ComputeSurfaceSource(TfToken(), nil, nil)
+        guard typeName == "Material" || surfaceShader.GetPrim().IsValid() else {
             return nil
         }
 
