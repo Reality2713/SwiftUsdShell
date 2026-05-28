@@ -1,8 +1,4 @@
-// Material DTOs moved from SwiftUsdShell public API.
-// ShellOpenUSD owns these C++ material interpretation types.
-// Consumed by OpenUSDKitMaterialInspectionClientLive.
-
-import SwiftUsdShell
+// Pure Swift material DTOs used by shell consumers and OpenUSD-backed material inspection.
 
 public enum USDMaterialSummaryType: String, Hashable, Sendable, Codable {
     case usdPreviewSurface
