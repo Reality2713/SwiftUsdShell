@@ -72,3 +72,23 @@ Minor releases are appropriate for:
 - new adapter coverage that exposes additional shell contract fields
 
 Avoid breaking public DTO shapes without a deliberate major-version plan.
+
+## Binary slice coherence (xcframework distribution)
+
+When producing the `SwiftUsdShell-binaries` / `SwiftUsd-binaries` xcframeworks
+via OpenUSDKit's `build_swiftusdshell_macos_arm64_binary_slice.sh`:
+
+- **Always build from a clean scratch** (`CLEAN_SCRATCH=1`, the default). A
+  reused incremental `.build` can ship a compiled `.swiftmodule` that is stale
+  relative to the freshly emitted `.swiftinterface`. Swift loads the compiled
+  module and ignores the interface, so the published binary advertises API in
+  its text interface that the loaded module does not actually contain. This shipped
+  once as `0.3.124-macos-arm64.2` (interface had `blockAttribute` / `usdaLiteral`,
+  module did not).
+- **Verify coherence before publishing:** the compiled module must expose every
+  symbol the interface advertises. Spot-check by compiling a trivial consumer
+  that references the newest additions against the produced xcframework.
+- Distribution follows a **single coordinated release train** across both binary
+  repos with **exact** pins only. See
+  `OpenUSDKit/docs/decisions/0003-binary-distribution-release-train.md` and
+  Reality2713/OpenUSDKit#13.
