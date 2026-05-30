@@ -41,10 +41,13 @@ Prim inspection:
 
 Generic edits:
 
+- define a typed prim at an absolute path
+- remove a prim at an absolute path
 - set default prim
 - set stage meters-per-unit
 - set stage up-axis
 - set common prim transform
+- set prim active state
 - save the stage
 
 ## Pending
@@ -58,7 +61,12 @@ The adapter must not implement:
 - application-specific import/export decisions
 - validation or repair workflows
 - material edit planning, readiness checks, or conversion strategy
+- RCP preparation or RealityKit compatibility policy
 - renderer publication, selection mapping, or editor identity
 - package, texture, or asset relocation policy
 
 Those concerns belong above `SwiftUsdShell` and `SwiftUsdShellOpenUSD`.
+
+Repair and RCP-oriented public APIs are intentionally excluded from
+`SwiftUsdShellOpenUSD`. Introduce those operations only through OpenUSDKit
+capability products with Swift-owned contracts.

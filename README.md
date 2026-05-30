@@ -127,6 +127,7 @@ SwiftUsdShell does not contain, and must not grow:
 - Stage caches, plugin registration, file-format loading, or bridge APIs.
 - File loading, rendering, validation, repair, conversion, or packaging
   workflows.
+- RCP preparation or RealityKit compatibility policy.
 
 These belong in the runtime adapter, or in the application and domain packages
 above it. Workflow and heuristics belong above the shell, not in it.
@@ -140,6 +141,9 @@ above it. Workflow and heuristics belong above the shell, not in it.
 - `SwiftUsdShellOpenUSD` stays mechanical: open stages, inspect prims, perform
   generic edits, and map results back into shell DTOs. It carries no product
   policy.
+- Neutral edit atoms such as define prim, remove prim, set active, set metadata,
+  and save are valid Shell requests. Repair plans, RCP preparation, material
+  strategy, renderer compatibility, and packaging workflows are not.
 - The package stays small, value-oriented, and `Sendable` wherever possible.
 
 `scripts/audit-public-surface.sh` enforces the type-leak rule.

@@ -493,24 +493,35 @@ func primRuntimeContractsArePureSwiftAndCodable() throws {
 
 @Test
 func editRuntimeContractsArePureSwiftAndCodable() throws {
-    let request = USDEditRequest.setPrimTransform(
-        stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
-        primPath: "/Root/Cube",
-        transform: USDTransformData(
-            position: SIMD3<Double>(1, 2, 3),
-            rotationDegrees: SIMD3<Double>(0, 45, 0),
-            orientation: USDQuaternion(
-                real: 0.9238795325,
-                imaginary: USDVector3(x: 0, y: 0.3826834324, z: 0)
-            ),
-            scale: SIMD3<Double>(repeating: 2)
+    let requests: [USDEditRequest] = [
+        .definePrim(
+            stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
+            primPath: "/Root/Cube",
+            typeName: "Cube"
         ),
-        options: USDTransformEditOptions(
-            authoringStyle: .commonTRSOrient,
-            timeCode: .default,
-            allowCreatingMissingOps: true
-        )
-    )
+        .removePrim(
+            stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
+            primPath: "/Root/Cube"
+        ),
+        .setPrimTransform(
+            stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
+            primPath: "/Root/Cube",
+            transform: USDTransformData(
+                position: SIMD3<Double>(1, 2, 3),
+                rotationDegrees: SIMD3<Double>(0, 45, 0),
+                orientation: USDQuaternion(
+                    real: 0.9238795325,
+                    imaginary: USDVector3(x: 0, y: 0.3826834324, z: 0)
+                ),
+                scale: SIMD3<Double>(repeating: 2)
+            ),
+            options: USDTransformEditOptions(
+                authoringStyle: .commonTRSOrient,
+                timeCode: .default,
+                allowCreatingMissingOps: true
+            )
+        ),
+    ]
     let result = USDEditResult(
         refreshHints: USDEditRefreshHints(
             reloadViewport: false,
@@ -530,9 +541,11 @@ func editRuntimeContractsArePureSwiftAndCodable() throws {
         ]
     )
 
-    let encodedRequest = try JSONEncoder().encode(request)
-    let decodedRequest = try JSONDecoder().decode(USDEditRequest.self, from: encodedRequest)
-    #expect(decodedRequest == request)
+    for request in requests {
+        let encodedRequest = try JSONEncoder().encode(request)
+        let decodedRequest = try JSONDecoder().decode(USDEditRequest.self, from: encodedRequest)
+        #expect(decodedRequest == request)
+    }
 
     let encodedResult = try JSONEncoder().encode(result)
     let decodedResult = try JSONDecoder().decode(USDEditResult.self, from: encodedResult)
