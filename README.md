@@ -8,6 +8,12 @@ to the code that consumes it.
 It is a contract, not a runtime. Importing `SwiftUsdShell` alone does not open,
 inspect, render, validate, or edit a USD file.
 
+The USD work itself is done by [SwiftUsd](https://github.com/apple/SwiftUsd),
+Apple's OpenUSD Swift bindings, on top of
+[OpenUSD](https://openusd.org), Pixar's Universal Scene Description.
+SwiftUsdShell adds no USD capability of its own — it is a boundary over that
+work. See [Acknowledgments](#acknowledgments).
+
 ## Problem
 
 OpenUSD's Swift bindings use C++ interoperability. Native USD types (`Usd*`,
@@ -91,7 +97,6 @@ Notes:
 ## Usage
 
 ```swift
-import SwiftUsdShell
 import SwiftUsdShellOpenUSD
 
 let runtime = OpenUSDStageRuntime()
@@ -103,6 +108,15 @@ let summary = try runtime.primSummary(
 // `summary` is a pure-Swift USDPrimSummary.
 // No OpenUSD type crosses this call.
 ```
+
+One import is enough. `SwiftUsdShellOpenUSD` re-exports `SwiftUsdShell`, so the
+runtime and the contract types it returns (`USDStageURL`, `USDPath`,
+`USDPrimSummary`, …) arrive together. You never import the wrapped module to name
+a return type. (On binary slices built before this re-export, import both
+`SwiftUsdShell` and `SwiftUsdShellOpenUSD`.)
+
+A target that needs only the contracts — no execution — imports `SwiftUsdShell`
+alone.
 
 ## What it is not
 
@@ -169,6 +183,20 @@ the mapping. The runtime owns execution.
 - [Docs/AdapterCoverage.md](Docs/AdapterCoverage.md) — current adapter coverage.
 - [Docs/ConsumerGuide.md](Docs/ConsumerGuide.md) — consumer setup.
 - [Docs/ReleaseChecklist.md](Docs/ReleaseChecklist.md) — release steps.
+
+## Acknowledgments
+
+SwiftUsdShell is a boundary layer. The capability it exposes belongs to the
+projects underneath it:
+
+- [OpenUSD](https://openusd.org) — Pixar's Universal Scene Description, the scene
+  format and runtime this entire stack serves.
+  ([PixarAnimationStudios/OpenUSD](https://github.com/PixarAnimationStudios/OpenUSD))
+- [SwiftUsd](https://github.com/apple/SwiftUsd) — Apple's Swift package for
+  OpenUSD via Swift/C++ interoperability, licensed under Apache 2.0. It is what
+  `SwiftUsdShellOpenUSD` calls into.
+
+Without these, there is nothing to wrap.
 
 ## Development
 

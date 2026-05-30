@@ -2,7 +2,11 @@ import CxxStdlib
 import Foundation
 import OpenUSD
 import simd
-import SwiftUsdShell
+// Re-exported: the runtime's public API returns SwiftUsdShell contract types
+// (USDStageURL, USDPath, USDPrimSummary, ...). Re-exporting them means a
+// consumer that imports SwiftUsdShellOpenUSD gets the contract too, and never
+// has to import the wrapped module separately to name a return type.
+@_exported import SwiftUsdShell
 
 typealias USDOverlay = OpenUSD.Overlay
 typealias pxr = pxrInternal_v0_26_5__pxrReserved__
