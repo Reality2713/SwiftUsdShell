@@ -1,85 +1,183 @@
 # SwiftUsdShell
 
-SwiftUsdShell is the pure Swift API boundary for USD-capable applications.
-It defines stable value types, handles, requests, and results for USD-related
-inspection and editing APIs.
+SwiftUsdShell is the pure-Swift API boundary for USD-capable applications on
+Apple platforms. It defines the value types, handles, requests, and results
+that describe USD inspection and editing, without exposing OpenUSD's C++ types
+to the code that consumes it.
 
-This package is not a USD runtime. Importing SwiftUsdShell alone does not open,
-inspect, validate, render, or edit USD files. A separate runtime package or
-application service must implement these contracts and map them to a USD engine.
+It is a contract, not a runtime. Importing `SwiftUsdShell` alone does not open,
+inspect, render, validate, or edit a USD file.
 
-The optional `SwiftUsdShellOpenUSD` product is the mechanical OpenUSD-backed
-adapter. Applications that only need contracts can depend on `SwiftUsdShell`;
-applications that need execution can also depend on `SwiftUsdShellOpenUSD`.
+## Problem
 
-For the full layering model, see
-[Docs/Architecture.md](Docs/Architecture.md). For current adapter coverage,
-see [Docs/AdapterCoverage.md](Docs/AdapterCoverage.md). For consumer setup,
-see [Docs/ConsumerGuide.md](Docs/ConsumerGuide.md). For release steps, see
-[Docs/ReleaseChecklist.md](Docs/ReleaseChecklist.md).
+OpenUSD's Swift bindings use C++ interoperability. Native USD types (`Usd*`,
+`Sdf*`, `Tf*`, `Vt*`, `Gf*`, `pxrInternal_*`) cross the language boundary and
+appear in Swift module interfaces. This has three consequences:
 
-## Boundary Rules
+1. The C++ types leak into every module that links the USD runtime directly.
+2. When more than one module in a build links the runtime, Release builds fail
+   with module-deserialization and linker errors that do not occur in Debug.
+3. Building the runtime from source compiles OpenUSD itself, which is large and
+   slow.
 
-- SwiftUsdShell must not import a USD runtime, C++ interop target, or private
-  bridge module.
-- Public APIs must not expose native USD runtime types such as `Usd*`, `Sdf*`,
-  `Tf*`, `Vt*`, `Gf*`, `OpenUSD.*`, or `pxrInternal_*`.
-- Product workflow policy belongs above the shell in consumer or domain
-  packages.
-- Runtime primitives belong in runtime implementation packages, not in this
-  contract package.
-- This package should stay small, value-oriented, Codable, Hashable, and
-  Sendable wherever possible.
+An application that needs to read or write USD should not inherit these
+properties across its whole module graph.
 
-## Current Surface
+## Solution
 
-- Core identity: `USDStageURL`, `USDStageHandle`, `USDPrimHandle`, `USDPath`,
+SwiftUsdShell confines the boundary to one place:
+
+- Consumers depend on `SwiftUsdShell`: pure Swift, value-oriented, `Codable`,
+  `Hashable`, and `Sendable`. No C++ types cross it.
+- Execution lives behind one optional adapter, `SwiftUsdShellOpenUSD`, which is
+  the only target that imports OpenUSD and enables C++ interop.
+- Both products are distributed as prebuilt binaries via
+  [`SwiftUsdShell-binaries`](https://github.com/Reality2713/SwiftUsdShell-binaries).
+  A consumer adds one dependency and does not compile OpenUSD.
+
+The C++ leak is contained in a single leaf target. Everything above it stays
+pure Swift.
+
+## Two products
+
+| Product | Imports OpenUSD / C++ | Depend on it when |
+|---|---|---|
+| `SwiftUsdShell` | No | You need the contracts: DTOs, requests, results. UI, models, and feature logic depend only on this. |
+| `SwiftUsdShellOpenUSD` | Yes (the Cxx leaf) | You need execution: open a stage, inspect prims, run generic edits. |
+
+Decision rule: depend on `SwiftUsdShell` by default. Add `SwiftUsdShellOpenUSD`
+only in the single target that executes USD work.
+
+## Install
+
+Consumers use the binary distribution. Add one dependency:
+
+```swift
+// Package.swift
+dependencies: [
+    .package(
+        url: "https://github.com/Reality2713/SwiftUsdShell-binaries.git",
+        exact: "0.3.125-macos-arm64.2"
+    ),
+],
+targets: [
+    // Contracts only — pure Swift, no C++.
+    .target(
+        name: "YourContracts",
+        dependencies: [
+            .product(name: "SwiftUsdShell", package: "SwiftUsdShell-binaries"),
+        ]
+    ),
+    // Execution — the one target that runs USD work.
+    .target(
+        name: "YourRuntime",
+        dependencies: [
+            .product(name: "SwiftUsdShellOpenUSD", package: "SwiftUsdShell-binaries"),
+        ],
+        swiftSettings: [.interoperabilityMode(.Cxx)]
+    ),
+]
+```
+
+Notes:
+
+- The binary `OpenUSD` product (`SwiftUsd-binaries`) is resolved transitively.
+  Do not declare it.
+- `.interoperabilityMode(.Cxx)` is required only on targets that depend on
+  `SwiftUsdShellOpenUSD`.
+- The currently published slice is macOS arm64 only. The source package declares
+  iOS 26 / macOS 15 / visionOS 26; further binary slices follow the same scheme.
+
+## Usage
+
+```swift
+import SwiftUsdShell
+import SwiftUsdShellOpenUSD
+
+let runtime = OpenUSDStageRuntime()
+
+let summary = try runtime.primSummary(
+    stage: USDStageURL(url),
+    primPath: USDPath("/Root/Sphere")
+)
+// `summary` is a pure-Swift USDPrimSummary.
+// No OpenUSD type crosses this call.
+```
+
+## What it is not
+
+SwiftUsdShell does not contain, and must not grow:
+
+- A renderer, an application, or product-specific concepts.
+- Material edit planning, readiness, branch plans, or execution strategy.
+- Stage caches, plugin registration, file-format loading, or bridge APIs.
+- File loading, rendering, validation, repair, conversion, or packaging
+  workflows.
+
+These belong in the runtime adapter, or in the application and domain packages
+above it. Workflow and heuristics belong above the shell, not in it.
+
+## Boundary rules
+
+- `SwiftUsdShell` must not import a USD runtime, a C++ interop target, or a
+  private bridge module.
+- Public APIs must not expose native USD runtime types (`Usd*`, `Sdf*`, `Tf*`,
+  `Vt*`, `Gf*`, `OpenUSD.*`, `pxrInternal_*`).
+- `SwiftUsdShellOpenUSD` stays mechanical: open stages, inspect prims, perform
+  generic edits, and map results back into shell DTOs. It carries no product
+  policy.
+- The package stays small, value-oriented, and `Sendable` wherever possible.
+
+`scripts/audit-public-surface.sh` enforces the type-leak rule.
+
+## Surface
+
+- Identity: `USDStageURL`, `USDStageHandle`, `USDPrimHandle`, `USDPath`,
   `USDAssetPath`, `USDToken`, `USDLoadPolicy`.
 - Values and summaries: `USDValue`, vector/matrix/quaternion values,
   `USDTimeCode`, `USDAttributeSummary`, `USDRelationshipSummary`,
   `USDDiagnostic`, `USDPrimSummary`, `USDPrimTree`, `USDStageMetadata`.
-- Materials: material summaries, property summaries, binding information,
-  generic semantic edit requests, and edit results.
-- Transforms: common transform data, authored xform-op summaries, and transform
-  edit capability/restriction DTOs.
+- Materials: material and property summaries, binding info, generic semantic
+  edit requests, and edit results.
+- Transforms: common transform data, authored xform-op summaries, transform
+  edit capability and restriction DTOs.
 - Statistics and model info: scene bounds, geometry statistics, animation
-  status, blend shapes, and model metadata.
-- Runtime contracts: stage/prim inspection requests and results, composition
-  arc summaries for references and payloads, variant set summaries, generic edit
-  requests, refresh hints, and runtime errors.
+  status, blend shapes, model metadata.
+- Runtime contracts: stage and prim inspection requests and results,
+  composition-arc summaries (references and payloads), variant-set summaries,
+  generic edit requests, refresh hints, and runtime errors.
 
-## What Is Not In The Shell
+## Layering
 
-SwiftUsdShell intentionally does not contain:
+```
+Application / domain      editor identity, import/export, selection,
+                          component authoring, validation, repair, workflows
+        depends on
+SwiftUsdShell (contracts) pure-Swift DTOs, requests, results        <- this repo
+        implemented by
+SwiftUsdShellOpenUSD       mechanical adapter, imports OpenUSD (Cxx leaf)
+        depends on
+SwiftUsd / OpenUSD         the USD runtime
+```
 
-- Renderer, application, or product-specific concepts.
-- Material edit planning policy, readiness, branch plans, or execution strategy.
-- Runtime stage caches, plugin registration, file format loading, or bridge
-  APIs.
+The application owns all policy. The shell owns the contract. The adapter owns
+the mapping. The runtime owns execution.
 
-Those concepts belong in runtime, renderer, application, or domain packages that
-depend on this shell.
+## Documentation
 
-## Runtime Adapter Direction
+- [Docs/Architecture.md](Docs/Architecture.md) — the full layering model.
+- [Docs/AdapterCoverage.md](Docs/AdapterCoverage.md) — current adapter coverage.
+- [Docs/ConsumerGuide.md](Docs/ConsumerGuide.md) — consumer setup.
+- [Docs/ReleaseChecklist.md](Docs/ReleaseChecklist.md) — release steps.
 
-SwiftUsdShell should be paired with a separate generic runtime adapter, such as
-`SwiftUsdShellOpenUSD`, when an application needs to execute USD work. That
-adapter may import SwiftUsd/OpenUSD and implement shell protocols, but it must
-stay mechanical: open stages, inspect prims, perform generic edits, and map
-results back into shell DTOs.
+## Development
 
-Application/domain layers remain above both packages. They own editor
-identity, import/export policy, selection mapping, component authoring,
-validation, repair, conversion, and workflow decisions.
+This repository is the source package. It depends on `SwiftUsd` from source and
+compiles OpenUSD; use it to develop the shell itself. Applications should not
+depend on this source package — they depend on `SwiftUsdShell-binaries`.
 
-## Release Checklist
-
-Before tagging a public release:
+Before tagging a release:
 
 1. Run `scripts/audit-public-surface.sh`.
-2. Run `swift test` in this package.
-3. Confirm no runtime imports, bridge imports, C++ interop settings, or
-   product-specific names are present in source or tests.
-4. Confirm new public DTOs are Codable, Hashable, and Sendable unless there is a
-   documented reason they cannot be.
-5. Confirm product and workflow logic stayed in a higher-level package.
+2. Run `swift test`.
+3. Follow [Docs/ReleaseChecklist.md](Docs/ReleaseChecklist.md).
