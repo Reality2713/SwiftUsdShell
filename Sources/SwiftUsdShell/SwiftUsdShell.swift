@@ -1487,6 +1487,28 @@ public struct USDEditRefreshHints: Hashable, Sendable, Codable {
     }
 }
 
+/// A typed attribute value for authoring onto a USD prim via
+/// ``USDEditRequest/setAttribute(stageURL:primPath:attributeName:value:uniform:)``.
+///
+/// Each case maps to an unambiguous USD value type; the runtime adapter
+/// converts to the corresponding typed value. All cases are pure-Swift
+/// value types — no OpenUSD or C++ types leak through this boundary.
+public enum USDAuthoredValue: Hashable, Sendable, Codable {
+    case bool(Bool)
+    case int(Int32)
+    case uint(UInt32)
+    case float(Float)
+    case double(Double)
+    case string(String)
+    case token(String)
+    case asset(String)
+    case stringArray([String])
+    case tokenArray([String])
+    case float2(Float, Float)
+    case float3(Float, Float, Float)
+    case quatf(real: Float, imaginary: USDVector3)
+}
+
 public enum USDEditRequest: Hashable, Sendable, Codable {
     /// Define a typed prim at an absolute stage path.
     case definePrim(stageURL: USDStageURL, primPath: USDPath, typeName: USDToken)
@@ -1517,6 +1539,38 @@ public enum USDEditRequest: Hashable, Sendable, Codable {
     /// Batch-set asset-path values on attributes across prims.
     /// Opens the stage once, applies all edits, and saves.
     case setAssetPaths(stageURL: USDStageURL, edits: [USDAssetPathEdit])
+    /// Author a typed value on a named attribute of a prim.
+    ///
+    /// Creates the attribute spec if it does not exist, using the USD value
+    /// type that corresponds to the ``USDAuthoredValue`` case.
+    /// When `uniform` is `true` the attribute variability is uniform;
+    /// otherwise it is varying.
+    case setAttribute(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        attributeName: USDToken,
+        value: USDAuthoredValue,
+        uniform: Bool
+    )
+    /// Set (or clear) the targets of a named relationship on a prim.
+    ///
+    /// An empty `targets` array clears all authored targets.
+    /// Creates the relationship spec if it does not exist.
+    case setRelationshipTargets(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        relationshipName: USDToken,
+        targets: [USDPath]
+    )
+    /// Remove the authored property spec (attribute or relationship) with the
+    /// given name from a prim on the stage's root edit target layer.
+    ///
+    /// No-ops silently when the property does not exist.
+    case removeProperty(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        propertyName: USDToken
+    )
     case save(stageURL: USDStageURL)
 }
 
@@ -1686,6 +1740,7 @@ public enum SwiftUsdShellError: Error, Equatable, Sendable, Codable {
     case invalidPath(String)
     case unsupportedSchema(String)
     case invalidValue(String)
+    case attributeSetFailed(stageURL: USDStageURL, primPath: USDPath, attributeName: String)
     case saveFailed(USDStageURL, diagnostic: String?)
     case runtimeUnavailable
     case underlyingDiagnostic(String)

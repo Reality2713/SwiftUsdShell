@@ -605,4 +605,121 @@ func publicContractsRemainSendable() {
     assertSendable(USDEditRequest.self)
     assertSendable(USDEditResult.self)
     assertSendable(SwiftUsdShellError.self)
+    assertSendable(USDAuthoredValue.self)
+}
+
+// MARK: - Property edit atoms (contract layer, no runtime required)
+
+@Test
+func authoredValueIsHashableAndCodable() throws {
+    let values: [USDAuthoredValue] = [
+        .bool(true),
+        .int(-7),
+        .uint(42),
+        .float(3.14),
+        .double(2.718281828),
+        .string("hello"),
+        .token("visible"),
+        .asset("textures/albedo.png"),
+        .stringArray(["a", "b", "c"]),
+        .tokenArray(["cube", "sphere"]),
+        .float2(1.0, 2.0),
+        .float3(1.0, 2.0, 3.0),
+        .quatf(real: 1.0, imaginary: USDVector3(x: 0, y: 0, z: 0)),
+    ]
+    for value in values {
+        let encoded = try JSONEncoder().encode(value)
+        let decoded = try JSONDecoder().decode(USDAuthoredValue.self, from: encoded)
+        #expect(decoded == value, "Round-trip failed for \(value)")
+    }
+}
+
+@Test
+func setAttributeEditRequestIsHashableAndCodable() throws {
+    let stageURL = USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))
+    let requests: [USDEditRequest] = [
+        .setAttribute(
+            stageURL: stageURL,
+            primPath: "/Root/Cube",
+            attributeName: "myFloat",
+            value: .float(1.5),
+            uniform: false
+        ),
+        .setAttribute(
+            stageURL: stageURL,
+            primPath: "/Root/Cube",
+            attributeName: "myToken",
+            value: .token("inherited"),
+            uniform: true
+        ),
+        .setAttribute(
+            stageURL: stageURL,
+            primPath: "/Root/Cube",
+            attributeName: "myQuatf",
+            value: .quatf(real: 1.0, imaginary: USDVector3(x: 0, y: 0, z: 0)),
+            uniform: false
+        ),
+        .setAttribute(
+            stageURL: stageURL,
+            primPath: "/Root/Shader",
+            attributeName: "inputs:varname",
+            value: .tokenArray(["st", "uv"]),
+            uniform: true
+        ),
+    ]
+    for request in requests {
+        let encoded = try JSONEncoder().encode(request)
+        let decoded = try JSONDecoder().decode(USDEditRequest.self, from: encoded)
+        #expect(decoded == request, "Round-trip failed for \(request)")
+    }
+}
+
+@Test
+func setRelationshipTargetsEditRequestIsHashableAndCodable() throws {
+    let stageURL = USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))
+    let requests: [USDEditRequest] = [
+        .setRelationshipTargets(
+            stageURL: stageURL,
+            primPath: "/Root/Mesh",
+            relationshipName: "material:binding",
+            targets: ["/Root/Looks/Mat"]
+        ),
+        .setRelationshipTargets(
+            stageURL: stageURL,
+            primPath: "/Root/Mesh",
+            relationshipName: "material:binding",
+            targets: []
+        ),
+    ]
+    for request in requests {
+        let encoded = try JSONEncoder().encode(request)
+        let decoded = try JSONDecoder().decode(USDEditRequest.self, from: encoded)
+        #expect(decoded == request, "Round-trip failed for \(request)")
+    }
+}
+
+@Test
+func removePropertyEditRequestIsHashableAndCodable() throws {
+    let stageURL = USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))
+    let request = USDEditRequest.removeProperty(
+        stageURL: stageURL,
+        primPath: "/Root/Cube",
+        propertyName: "inputs:myAttr"
+    )
+    let encoded = try JSONEncoder().encode(request)
+    let decoded = try JSONDecoder().decode(USDEditRequest.self, from: encoded)
+    #expect(decoded == request)
+}
+
+@Test
+func attributeSetFailedErrorIsEquatableAndCodable() throws {
+    let stageURL = USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))
+    let error = SwiftUsdShellError.attributeSetFailed(
+        stageURL: stageURL,
+        primPath: "/Root/Cube",
+        attributeName: "myAttr"
+    )
+    let encoded = try JSONEncoder().encode(error)
+    let decoded = try JSONDecoder().decode(SwiftUsdShellError.self, from: encoded)
+    #expect(decoded == error)
 }
