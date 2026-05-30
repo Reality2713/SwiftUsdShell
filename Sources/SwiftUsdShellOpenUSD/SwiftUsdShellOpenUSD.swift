@@ -61,6 +61,7 @@ typealias GfQuath = pxr.GfQuath
 typealias VtValue = pxr.VtValue
 typealias VtIntArray = pxr.VtIntArray
 typealias VtTokenArray = pxr.VtTokenArray
+typealias VtStringArray = pxr.VtStringArray
 typealias VtVec3fArray = pxr.VtVec3fArray
 typealias SdfZipFileWriter = pxr.SdfZipFileWriter
 typealias SdfZipFile = pxr.SdfZipFile
@@ -471,6 +472,77 @@ public final class OpenUSDStageRuntime: Sendable {
 
         case .setAssetPaths(let stageURL, let edits):
             return try setAssetPaths(stageURL: stageURL, edits: edits)
+
+        case .setAttribute(let stageURL, let primPath, let attributeName, let value, let uniform):
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                var prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let token = TfToken(std.string(attributeName.rawValue))
+                let variability = uniform
+                    ? SdfVariability.SdfVariabilityUniform
+                    : SdfVariability.SdfVariabilityVarying
+                let (typeName, vtValue) = vtValueForAuthoredValue(value)
+                let attr = prim.CreateAttribute(token, typeName, false, variability)
+                guard attr.Set(vtValue, UsdTimeCode.Default()) else {
+                    throw SwiftUsdShellError.attributeSetFailed(
+                        stageURL: stageURL,
+                        primPath: primPath,
+                        attributeName: attributeName.rawValue
+                    )
+                }
+                stage.Save()
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        refreshInspector: true,
+                        changedPrimPaths: [primPath]
+                    )
+                )
+            }
+
+        case .setRelationshipTargets(let stageURL, let primPath, let relationshipName, let targets):
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                var prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let token = TfToken(std.string(relationshipName.rawValue))
+                var rel = prim.CreateRelationship(token, false)
+                if targets.isEmpty {
+                    rel.ClearTargets(true)
+                } else {
+                    var pathVector = SdfPathVector()
+                    for target in targets {
+                        pathVector.push_back(SdfPath(std.string(target.rawValue)))
+                    }
+                    _ = rel.SetTargets(pathVector)
+                }
+                stage.Save()
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        refreshInspector: true,
+                        changedPrimPaths: [primPath]
+                    )
+                )
+            }
+
+        case .removeProperty(let stageURL, let primPath, let propertyName):
+            return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+                var prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+                guard prim.IsValid() else {
+                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+                }
+                let token = TfToken(std.string(propertyName.rawValue))
+                _ = prim.RemoveProperty(token)
+                stage.Save()
+                return USDEditResult(
+                    refreshHints: USDEditRefreshHints(
+                        refreshInspector: true,
+                        changedPrimPaths: [primPath]
+                    )
+                )
+            }
 
         case .save(let stageURL):
             return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
@@ -4208,6 +4280,50 @@ private func sdfValueTypeName(named name: String) -> SdfValueTypeName? {
         SdfValueTypeName.Matrix4d
     default:
         nil
+    }
+}
+
+/// Convert a ``USDAuthoredValue`` to the pair of (SdfValueTypeName, VtValue)
+/// needed by `UsdAttribute.CreateAttribute` + `UsdAttribute.Set`.
+private func vtValueForAuthoredValue(
+    _ authored: USDAuthoredValue
+) -> (SdfValueTypeName, VtValue) {
+    switch authored {
+    case .bool(let v):
+        return (SdfValueTypeName.Bool, VtValue(v))
+    case .int(let v):
+        return (SdfValueTypeName.Int, VtValue(v))
+    case .uint(let v):
+        return (SdfValueTypeName.UInt, VtValue(v))
+    case .float(let v):
+        return (SdfValueTypeName.Float, VtValue(v))
+    case .double(let v):
+        return (SdfValueTypeName.Double, VtValue(v))
+    case .string(let v):
+        return (SdfValueTypeName.String, VtValue(std.string(v)))
+    case .token(let v):
+        return (SdfValueTypeName.Token, VtValue(TfToken(std.string(v))))
+    case .asset(let v):
+        return (SdfValueTypeName.Asset, VtValue(SdfAssetPath(std.string(v))))
+    case .stringArray(let strings):
+        var array = VtStringArray()
+        for s in strings {
+            array.push_back(std.string(s))
+        }
+        return (SdfValueTypeName.StringArray, VtValue(array))
+    case .tokenArray(let tokens):
+        var array = VtTokenArray()
+        for t in tokens {
+            array.push_back(TfToken(std.string(t)))
+        }
+        return (SdfValueTypeName.TokenArray, VtValue(array))
+    case .float2(let x, let y):
+        return (SdfValueTypeName.Float2, VtValue(GfVec2f(x, y)))
+    case .float3(let x, let y, let z):
+        return (SdfValueTypeName.Float3, VtValue(GfVec3f(x, y, z)))
+    case .quatf(let real, let imaginary):
+        let q = GfQuatf(real, GfVec3f(Float(imaginary.x), Float(imaginary.y), Float(imaginary.z)))
+        return (SdfValueTypeName.Quatf, VtValue(q))
     }
 }
 
