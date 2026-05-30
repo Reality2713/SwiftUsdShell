@@ -13,6 +13,7 @@ typealias pxr = pxrInternal_v0_26_5__pxrReserved__
 
 typealias UsdStage = pxr.UsdStage
 typealias UsdStageRefPtr = pxr.UsdStageRefPtr
+typealias UsdStageCache = pxr.UsdStageCache
 typealias UsdPrim = pxr.UsdPrim
 typealias UsdPrimRange = pxr.UsdPrimRange
 typealias UsdRelationship = pxr.UsdRelationship
@@ -127,7 +128,10 @@ private func materialBindingStrength(_ value: String) -> USDMaterialBindingStren
 ///
 /// This target may import SwiftUsd/OpenUSD. The base SwiftUsdShell target must
 /// remain independent from this adapter.
-public final class OpenUSDStageRuntime: Sendable {
+public final class OpenUSDStageRuntime: @unchecked Sendable {
+    private var stageCache = UsdStageCache()
+    private var stageRefsByOpenKey: [String: UsdStageRefPtr] = [:]
+    private let stageCacheLock = NSRecursiveLock()
 
     public init() {}
 
@@ -492,7 +496,6 @@ public final class OpenUSDStageRuntime: Sendable {
                         attributeName: attributeName.rawValue
                     )
                 }
-                stage.Save()
                 return USDEditResult(
                     refreshHints: USDEditRefreshHints(
                         refreshInspector: true,
@@ -518,7 +521,6 @@ public final class OpenUSDStageRuntime: Sendable {
                     }
                     _ = rel.SetTargets(pathVector)
                 }
-                stage.Save()
                 return USDEditResult(
                     refreshHints: USDEditRefreshHints(
                         refreshInspector: true,
@@ -535,7 +537,6 @@ public final class OpenUSDStageRuntime: Sendable {
                 }
                 let token = TfToken(std.string(propertyName.rawValue))
                 _ = prim.RemoveProperty(token)
-                stage.Save()
                 return USDEditResult(
                     refreshHints: USDEditRefreshHints(
                         refreshInspector: true,
@@ -543,6 +544,29 @@ public final class OpenUSDStageRuntime: Sendable {
                     )
                 )
             }
+
+        case .reload(let stageURL):
+            stageCacheLock.withLock {
+                let pathPrefix = "\(stageURL.url.path)|"
+                for (key, stageRef) in stageRefsByOpenKey where key.hasPrefix(pathPrefix) {
+                    _ = key
+                    USDOverlay.Dereference(stageRef).Reload()
+                }
+            }
+            return USDEditResult(
+                refreshHints: USDEditRefreshHints(
+                    reloadViewport: true,
+                    refreshSceneGraph: true,
+                    refreshInspector: true
+                )
+            )
+
+        case .close:
+            stageCacheLock.withLock {
+                stageRefsByOpenKey.removeAll()
+                stageCache.Clear()
+            }
+            return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: false))
 
         case .save(let stageURL):
             return try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
@@ -1833,10 +1857,20 @@ private extension OpenUSDStageRuntime {
         loadPolicy: USDLoadPolicy,
         _ body: (UsdStage) throws -> T
     ) throws -> T {
+        stageCacheLock.lock()
+        defer { stageCacheLock.unlock() }
+
+        let openKey = "\(stageURL.url.path)|\(String(describing: loadPolicy))"
+        if let stageRef = stageRefsByOpenKey[openKey] {
+            return try body(USDOverlay.Dereference(stageRef))
+        }
+
         let stageRef = UsdStage.Open(std.string(stageURL.url.path), openUSDLoadPolicy(loadPolicy))
         guard stageRef._isNonnull() else {
             throw SwiftUsdShellError.stageOpenFailed(stageURL, diagnostic: nil)
         }
+        stageRefsByOpenKey[openKey] = stageRef
+        _ = stageCache.Insert(stageRef)
         return try body(USDOverlay.Dereference(stageRef))
     }
 

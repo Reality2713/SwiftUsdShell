@@ -1571,6 +1571,16 @@ public enum USDEditRequest: Hashable, Sendable, Codable {
         primPath: USDPath,
         propertyName: USDToken
     )
+    /// Reload the cached stage from its contributing layers.
+    ///
+    /// Use this after out-of-band file writes so subsequent runtime reads and
+    /// edits see the authored layer contents.
+    case reload(stageURL: USDStageURL)
+    /// Drop the cached stage handle for this runtime.
+    ///
+    /// The live runtime may clear a broader cache bucket when the native cache
+    /// cannot erase by URL without reopening the stage.
+    case close(stageURL: USDStageURL)
     case save(stageURL: USDStageURL)
 }
 

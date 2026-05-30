@@ -503,6 +503,9 @@ func editRuntimeContractsArePureSwiftAndCodable() throws {
             stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
             primPath: "/Root/Cube"
         ),
+        .reload(stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))),
+        .close(stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))),
+        .save(stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda"))),
         .setPrimTransform(
             stageURL: USDStageURL(URL(fileURLWithPath: "/tmp/scene.usda")),
             primPath: "/Root/Cube",
