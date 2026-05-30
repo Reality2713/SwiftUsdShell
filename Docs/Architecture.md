@@ -53,6 +53,10 @@ Not allowed here:
 
 This layer should be mechanical: call the runtime, map into shell DTOs, return results.
 
+Generic edit atoms such as defining a prim, removing a prim, setting an active
+flag, setting metadata, or saving a stage are allowed here. They mirror neutral
+OpenUSD stage operations without deciding why an application is making the edit.
+
 The adapter should grow in the same groups that broad USD tooling tends to use:
 
 - stage metadata and prim hierarchy
@@ -64,7 +68,8 @@ The adapter should grow in the same groups that broad USD tooling tends to use:
 - structured runtime diagnostics
 
 Import/export policy, texture packaging, renderer publication, validation
-strategy, and editor workflow decisions remain application/domain concerns.
+strategy, repair planning, RCP preparation, RealityKit compatibility behavior,
+and editor workflow decisions remain application/domain concerns.
 
 ## 3. Application / Domain Layers
 
@@ -129,5 +134,8 @@ Before adding an API, answer:
 
 1. Keep broadening `SwiftUsdShellOpenUSD` only with mechanical USD facts that map directly into existing shell contracts.
 2. Use external sample applications as proof: feature/UI targets should import shell contracts, while the runtime adapter is the only target that imports SwiftUsd/OpenUSD.
-3. Move warning, repair, validation, packaging, and renderer-parity decisions into consuming application/domain packages.
+3. Move warning, repair, validation, packaging, RCP preparation, RealityKit compatibility, and renderer-parity decisions into consuming application/domain packages.
 4. When consumers need new data, first ask whether it is a neutral USD fact or a product workflow rule. Add only the neutral fact to SwiftUsdShell.
+
+Repair and RCP-oriented APIs are not Shell surface. Introduce those operations
+only through OpenUSDKit capability facets with Swift-owned contracts.
