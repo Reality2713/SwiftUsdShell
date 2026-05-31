@@ -92,3 +92,8 @@ via OpenUSDKit's `build_swiftusdshell_macos_arm64_binary_slice.sh`:
   repos with **exact** pins only. See
   `OpenUSDKit/docs/decisions/0003-binary-distribution-release-train.md` and
   Reality2713/OpenUSDKit#13.
+- When an edit atom changes stage lifetime or persistence semantics, publish a
+  new coordinated train and validate it through at least one downstream app
+  scheme. `0.3.126-macos-arm64.3` is the reference case: cached stage ownership,
+  `save`, and `reload` were validated by Deconstructed's `InspectorUI` SwiftPM
+  target and macOS Xcode app scheme.
