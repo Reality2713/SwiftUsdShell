@@ -1458,33 +1458,111 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
         docComment: String,
         footerComment: String?
     ) throws {
-        var lines: [String] = []
-        lines.append("#usda 1.0")
-        lines.append("(")
-        if !docComment.isEmpty {
-            lines.append("    doc = \"\"\"\(docComment)\"\"\"")
+        // Author the session root *through* OpenUSD's process-global layer
+        // registry instead of writing USDA text out-of-band. Resolving the
+        // layer via `FindOrOpen`/`CreateNew` means the authored layer *is* the
+        // cached registry layer, so every in-process reader (export,
+        // validation, viewport staging) composes the content we just authored
+        // with no explicit `Reload`. Authoring also emits the usual
+        // `SdfNotice::LayersDidChange` change notices and lets `Save()` honor
+        // the layer's file flavor rather than hard-coding `.usda`.
+        let path = std.string(outputURL.url.path)
+        let args = SdfLayer.FileFormatArguments()
+
+        // Prefer the already-cached layer; create a fresh one only when this
+        // identifier has never been opened. `FindOrOpen` on a non-existent path
+        // returns null, so fall through to `CreateNew` in that case.
+        var layerHandle = SdfLayer.FindOrOpen(path, args)
+        if !layerHandle._isNonnull() {
+            layerHandle = SdfLayer.CreateNew(path, args)
         }
-        for (key, value) in stageMetadata.sorted(by: { $0.key < $1.key }) {
-            if let doubleValue = Double(value) {
-                lines.append("    \(key) = \(doubleValue)")
-            } else {
-                lines.append("    \(key) = \"\(value)\"")
+        guard layerHandle._isNonnull() else {
+            throw SwiftUsdShellError.invalidValue(
+                "Unable to open or create session layer at \(outputURL.url.lastPathComponent)"
+            )
+        }
+        let layer = USDOverlay.Dereference(layerHandle)
+
+        // Batch all field edits into a single change block so readers observe
+        // one coherent `LayersDidChange` notice rather than a flurry of them.
+        withSdfChangeBlock {
+            // The session root is fully described by Preflight on every write,
+            // so clear any previously-authored content/metadata first. This
+            // keeps the on-disk result a pure function of the current session
+            // (no stale fields linger from an earlier composition) and matches
+            // the old text writer, which always wrote a complete file.
+            layer.Clear()
+
+            // `doc = "..."` — the layer Documentation field.
+            if !docComment.isEmpty {
+                layer.SetDocumentation(std.string(docComment))
             }
-        }
-        if !subLayers.isEmpty {
-            lines.append("    subLayers = [")
+
+            // The footer (provenance note) maps to the layer Comment field.
+            // USD serializes it at the top of the metadata block; the old text
+            // writer placed it as a trailing remark. Same metadata, canonical
+            // placement.
+            if let footer = footerComment, !footer.isEmpty {
+                layer.SetComment(std.string(footer))
+            }
+
+            // Root metadata. The well-known stage keys are typed fields and
+            // must be authored with their schema value types (TfToken for
+            // `defaultPrim`/`upAxis`, double for `metersPerUnit`). Any other
+            // keys fall back to the same numeric-vs-string heuristic the text
+            // writer used. USD serializes these alphabetically, matching the
+            // previous `sorted(by:)` ordering.
+            let rootPath = SdfPath.AbsoluteRootPath()
+            for (key, value) in stageMetadata {
+                switch key {
+                case "defaultPrim":
+                    layer.SetDefaultPrim(TfToken(std.string(value)))
+                case "upAxis":
+                    layer.SetField(
+                        rootPath,
+                        TfToken(std.string(key)),
+                        VtValue(TfToken(std.string(value)))
+                    )
+                case "metersPerUnit":
+                    if let doubleValue = Double(value) {
+                        layer.SetField(
+                            rootPath,
+                            TfToken(std.string(key)),
+                            VtValue(doubleValue)
+                        )
+                    }
+                default:
+                    if let doubleValue = Double(value) {
+                        layer.SetField(
+                            rootPath,
+                            TfToken(std.string(key)),
+                            VtValue(doubleValue)
+                        )
+                    } else {
+                        layer.SetField(
+                            rootPath,
+                            TfToken(std.string(key)),
+                            VtValue(std.string(value))
+                        )
+                    }
+                }
+            }
+
+            // Sublayers, in the exact order Preflight computed (visibility
+            // overrides first if present, edit history reversed, original or
+            // rebased source last). Rebuild from scratch each write.
             for subLayer in subLayers {
-                lines.append("        @\(subLayer)@,")
+                layer.InsertSubLayerPath(std.string(subLayer), -1)
             }
-            lines.append("    ]")
         }
-        if let footer = footerComment, !footer.isEmpty {
-            lines.append("    // \(footer)")
+
+        // Persist through the file format associated with the layer's
+        // identifier; `Save()` is a no-op-safe flush of the in-memory edits.
+        guard layer.Save(false) else {
+            throw SwiftUsdShellError.invalidValue(
+                "Unable to save session layer at \(outputURL.url.lastPathComponent)"
+            )
         }
-        lines.append(")")
-        lines.append("")
-        let content = lines.joined(separator: "\n")
-        try content.write(to: outputURL.url, atomically: true, encoding: .utf8)
     }
 
     public func exportFlattenedLayer(
