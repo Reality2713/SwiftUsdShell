@@ -1268,6 +1268,18 @@ public struct USDViewportNormalMapNormalizationResult: Hashable, Sendable, Codab
     }
 }
 
+/// Result of normalizing `UsdUVTexture.inputs:varname` to the shader
+/// definition's canonical `string` type.
+public struct USDViewportUVTextureVarnameNormalizationResult: Hashable, Sendable, Codable {
+    /// Number of `UsdUVTexture` shader prims whose `inputs:varname` type was
+    /// rewritten from `token` to `string`.
+    public var normalizedShaderCount: Int
+
+    public init(normalizedShaderCount: Int) {
+        self.normalizedShaderCount = normalizedShaderCount
+    }
+}
+
 // MARK: - Runtime Contracts
 
 public struct USDStageInspectionOptions: Hashable, Sendable, Codable {

@@ -2962,8 +2962,8 @@ private extension OpenUSDStageRuntime {
             return nil
         }
 
-        let authored = stableOwnedString(describing: value.GetAssetPath())
-        let resolved = stableOwnedString(describing: value.GetResolvedPath())
+        let authored = stableOwnedString(describing: value.GetAssetPath().pointee)
+        let resolved = stableOwnedString(describing: value.GetResolvedPath().pointee)
         if authored.isEmpty, resolved.isEmpty {
             return nil
         }
@@ -3235,8 +3235,8 @@ private extension OpenUSDStageRuntime {
                 if typeName == SdfValueTypeName.Asset {
                     var assetValue = SdfAssetPath()
                     guard attr.Get(&assetValue, UsdTimeCode.Default()) else { continue }
-                    let authored = stableOwnedString(describing: assetValue.GetAssetPath())
-                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath())
+                    let authored = stableOwnedString(describing: assetValue.GetAssetPath().pointee)
+                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath().pointee)
                     guard matches(authored) || matches(resolved) else { continue }
                     attrOverrides.append(USDSparseAttributeOverride(
                         name: attrName,
@@ -3329,8 +3329,8 @@ private extension OpenUSDStageRuntime {
                 if typeName == SdfValueTypeName.Asset {
                     var assetValue = SdfAssetPath()
                     guard attr.Get(&assetValue, UsdTimeCode.Default()) else { continue }
-                    let authored = stableOwnedString(describing: assetValue.GetAssetPath())
-                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath())
+                    let authored = stableOwnedString(describing: assetValue.GetAssetPath().pointee)
+                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath().pointee)
                     guard matches(authored) || matches(resolved) else { continue }
                     attrOverrides.append(USDSparseAttributeOverride(
                         name: attrName,
@@ -3419,9 +3419,9 @@ private extension OpenUSDStageRuntime {
             if typeName == "asset" {
                 var assetPath = SdfAssetPath()
                 guard attr.Get(&assetPath, UsdTimeCode.Default()) else { return nil }
-                let authored = stableOwnedString(describing: assetPath.GetAssetPath())
+                let authored = stableOwnedString(describing: assetPath.GetAssetPath().pointee)
                 if authored.isEmpty {
-                    let resolved = stableOwnedString(describing: assetPath.GetResolvedPath())
+                    let resolved = stableOwnedString(describing: assetPath.GetResolvedPath().pointee)
                     return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
                 }
                 return .assetPath(USDAssetPath(authored))
@@ -4150,6 +4150,44 @@ private extension OpenUSDStageRuntime {
         }
     }
 
+    /// Rewrites `UsdUVTexture.inputs:varname` specs authored as `token` to the
+    /// canonical shader-definition `string` input type while preserving the
+    /// authored default value.
+    public func normalizeUsdUVTextureVarnameInputs(
+        stageURL: USDStageURL
+    ) throws -> USDViewportUVTextureVarnameNormalizationResult {
+        return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+        let rootLayerHandle = stage.GetRootLayer()
+        guard Bool(rootLayerHandle) else {
+            throw SwiftUsdShellError.invalidValue(
+                "UsdUVTexture varname normalization: root layer is not accessible for \(stageURL.url.lastPathComponent)"
+            )
+        }
+        let rootLayer = USDOverlay.Dereference(rootLayerHandle)
+
+        var normalizedShaderCount = 0
+        // Module-qualified: Swift 6.4 resolves the bare name to an instance
+        // method shadowing this module-level function.
+        SwiftUsdShellOpenUSD.normalizeUsdUVTextureVarnameInputs(
+            stage: stage,
+            rootLayer: rootLayer,
+            normalizedShaderCount: &normalizedShaderCount
+        )
+
+        if normalizedShaderCount > 0 {
+            guard rootLayer.Save(false) else {
+                throw SwiftUsdShellError.invalidValue(
+                    "UsdUVTexture varname normalization: failed to save root layer for \(stageURL.url.lastPathComponent)"
+                )
+            }
+        }
+
+        return USDViewportUVTextureVarnameNormalizationResult(
+            normalizedShaderCount: normalizedShaderCount
+        )
+        }
+    }
+
 }
 
 /// Walks composed shader prims and authors missing `UsdUVTexture` normal-map
@@ -4225,6 +4263,60 @@ private func authorNormalMapDefaults(
         if authoredAny {
             normalizedShaderCount += 1
         }
+    }
+}
+
+private func normalizeUsdUVTextureVarnameInputs(
+    stage: UsdStage,
+    rootLayer: SdfLayer,
+    normalizedShaderCount: inout Int
+) {
+    for prim in stage.Traverse().swiftSequence {
+        guard isShaderPrim(prim),
+              shaderIdentifier(prim) == "UsdUVTexture" else { continue }
+
+        let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
+        guard let varnameSpec = attributeSpec(named: "inputs:varname", primPath: primPath, in: rootLayer),
+              varnameSpec.GetTypeName() == SdfValueTypeName.Token else { continue }
+        let owner = rootLayer.GetPrimAtPath(SdfPath(std.string(primPath)))
+        guard Bool(owner) else { continue }
+
+        let attr = prim.GetAttribute(TfToken(std.string("inputs:varname")))
+        var varname = "st"
+        if attr.IsValid() {
+            var token = TfToken()
+            if attr.Get(&token, UsdTimeCode.Default()) {
+                let raw = stableOwnedString(describing: token.GetString())
+                if raw.isEmpty == false {
+                    varname = raw
+                }
+            } else {
+                var stringValue = std.string()
+                if attr.Get(&stringValue, UsdTimeCode.Default()) {
+                    let raw = stableOwnedString(describing: stringValue)
+                    if raw.isEmpty == false {
+                        varname = raw
+                    }
+                }
+            }
+        }
+
+        let property = rootLayer.GetPropertyAtPath(varnameSpec.GetPath())
+        guard Bool(property) else { continue }
+        var ownerSpec = owner.pointee
+        ownerSpec.RemoveProperty(property)
+
+        let rewritten = SdfAttributeSpec.New(
+            owner,
+            std.string("inputs:varname"),
+            SdfValueTypeName.String,
+            SdfVariability.SdfVariabilityUniform,
+            false
+        )
+        guard Bool(rewritten) else { continue }
+        var rewrittenSpec = rewritten.pointee
+        _ = rewrittenSpec.SetDefaultValue(VtValue(std.string(varname)))
+        normalizedShaderCount += 1
     }
 }
 
@@ -4722,9 +4814,11 @@ private func convertVtValueToUSDValue(_ input: VtValue) -> USDValue? {
     }
     if value.IsHolding(T: SdfAssetPath.self) {
         let assetPath = value.Get() as SdfAssetPath
-        let authored = String(assetPath.GetAssetPath())
+        // .pointee: Swift 6.4 imports the const& getters as UnsafePointer
+        // projections (SWIFT_RETURNS_INDEPENDENT_VALUE annotation upstream).
+        let authored = String(assetPath.GetAssetPath().pointee)
         if authored.isEmpty {
-            let resolved = String(assetPath.GetResolvedPath())
+            let resolved = String(assetPath.GetResolvedPath().pointee)
             return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
         }
         return .assetPath(USDAssetPath(authored))
