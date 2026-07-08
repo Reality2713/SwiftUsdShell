@@ -1009,7 +1009,7 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
             throw SwiftUsdShellError.stageOpenFailed(stage, diagnostic: nil)
         }
         let pseudoRoot = USDOverlay.Dereference(stagePtr).GetPseudoRoot()
-        for child in pseudoRoot.GetChildren().swiftSequence {
+        for child in pseudoRoot.GetChildren() {
             return primTree(child)
         }
         return nil
@@ -1726,7 +1726,7 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
 
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        for entry in zipFile.swiftSequence {
+        for entry in zipFile {
             let filename = String(entry.pointee)
             let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
             guard imageExtensions.contains(ext) else { continue }
@@ -1769,7 +1769,7 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
         var writtenCount = 0
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        for entry in zipFile.swiftSequence {
+        for entry in zipFile {
             let filename = String(entry.pointee)
             guard let relativePath = normalizedPackagedAssetPath(filename) else { continue }
 
@@ -1799,7 +1799,7 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
             throw SwiftUsdShellError.invalidValue("Failed to open USDZ: \(packageURL.url.lastPathComponent)")
         }
 
-        for entry in zipFile.swiftSequence {
+        for entry in zipFile {
             let filename = String(entry.pointee)
             guard normalizedPackagedAssetPath(filename) == requestedPath else { continue }
             let fileInfo = entry.GetFileInfo()
@@ -1820,7 +1820,7 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
         }
 
         var paths: [USDAssetPath] = []
-        for entry in zipFile.swiftSequence {
+        for entry in zipFile {
             let filename = String(entry.pointee)
             guard let relativePath = normalizedPackagedAssetPath(filename) else { continue }
             paths.append(USDAssetPath(relativePath))
@@ -1835,7 +1835,7 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
         }
         let pseudoRoot = USDOverlay.Dereference(stagePtr).GetPseudoRoot()
         var paths: [USDPath] = []
-        for child in pseudoRoot.GetChildren().swiftSequence {
+        for child in pseudoRoot.GetChildren() {
             guard child.IsValid() else { continue }
             let pathStr = String(child.GetPath().GetAsString())
             guard !pathStr.isEmpty else { continue }
@@ -1854,7 +1854,7 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
         var unresolved: [String] = []
         var seen = Set<String>()
         let dir = stage.url.deletingLastPathComponent()
-        for prim in pxrStage.Traverse().swiftSequence {
+        for prim in pxrStage.Traverse() {
             guard prim.IsValid(), prim.HasAuthoredReferences() else { continue }
             for ref in typedAuthoredReferences(on: prim) {
                 let key = ref.assetPath
@@ -1980,7 +1980,7 @@ private extension OpenUSDStageRuntime {
         var start: Double?
         var end: Double?
 
-        for prim in stage.Traverse().swiftSequence {
+        for prim in stage.Traverse() {
             for attribute in prim.GetAttributes() {
                 guard attribute.GetNumTimeSamples() > 0 else { continue }
 
@@ -2023,7 +2023,7 @@ private extension OpenUSDStageRuntime {
 
     func stageAnimationTracks(_ stage: UsdStage) -> [USDPath] {
         var tracks: [USDPath] = []
-        for prim in stage.Traverse().swiftSequence {
+        for prim in stage.Traverse() {
             let typeName = stableOwnedString(describing: prim.GetTypeName().GetString()).lowercased()
             guard typeName == "skelanimation"
                 || typeName == "animation"
@@ -2036,7 +2036,7 @@ private extension OpenUSDStageRuntime {
 
     func stageCameras(_ stage: UsdStage) -> [USDPath] {
         var cameras: [USDPath] = []
-        for prim in stage.Traverse().swiftSequence {
+        for prim in stage.Traverse() {
             guard stableOwnedString(describing: prim.GetTypeName().GetString()) == "Camera" else { continue }
             cameras.append(USDPath(stableOwnedString(describing: prim.GetPath().GetAsString())))
         }
@@ -2052,7 +2052,7 @@ private extension OpenUSDStageRuntime {
             isActive: prim.IsActive(),
             isInstanceable: prim.IsInstanceable(),
             purpose: purpose(prim),
-            children: prim.GetChildren().swiftSequence.map { primTree($0) }
+            children: prim.GetChildren().map { primTree($0) }
         )
     }
 
@@ -2083,7 +2083,7 @@ private extension OpenUSDStageRuntime {
                 break
             }
 
-            for child in prim.GetChildren().swiftSequence {
+            for child in prim.GetChildren() {
                 visit(child)
             }
         }
@@ -2138,7 +2138,7 @@ private extension OpenUSDStageRuntime {
 
     func combinedChildBounds(_ prim: UsdPrim, timeCode: USDTimeCode) -> USDSceneBounds? {
         var combined: USDSceneBounds?
-        for child in prim.GetChildren().swiftSequence {
+        for child in prim.GetChildren() {
             guard let childBounds = sceneBounds(child, timeCode: timeCode) else {
                 continue
             }
@@ -2682,7 +2682,7 @@ private extension OpenUSDStageRuntime {
                 summaries.append(summary)
             }
 
-            for child in prim.GetChildren().swiftSequence {
+            for child in prim.GetChildren() {
                 visit(child)
             }
         }
@@ -2962,8 +2962,8 @@ private extension OpenUSDStageRuntime {
             return nil
         }
 
-        let authored = stableOwnedString(describing: value.GetAssetPath().pointee)
-        let resolved = stableOwnedString(describing: value.GetResolvedPath().pointee)
+        let authored = stableOwnedString(describing: value.GetAssetPath())
+        let resolved = stableOwnedString(describing: value.GetResolvedPath())
         if authored.isEmpty, resolved.isEmpty {
             return nil
         }
@@ -2988,7 +2988,7 @@ private extension OpenUSDStageRuntime {
 
         if stableOwnedString(describing: prim.GetTypeName().GetString()) == "Mesh" {
             var subsetTargets: Set<String> = []
-            for child in prim.GetChildren().swiftSequence {
+            for child in prim.GetChildren() {
                 if stableOwnedString(describing: child.GetTypeName().GetString()) != "GeomSubset" {
                     continue
                 }
@@ -3106,7 +3106,7 @@ private extension OpenUSDStageRuntime {
         var warnings: [String] = []
 
         let missingBasename = (assetPath as NSString).lastPathComponent
-        for prim in stage.Traverse().swiftSequence {
+        for prim in stage.Traverse() {
             guard prim.IsValid() else { continue }
             guard prim.HasAuthoredReferences() else { continue }
             let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
@@ -3204,7 +3204,7 @@ private extension OpenUSDStageRuntime {
             }
         }
 
-        for prim in stage.Traverse().swiftSequence {
+        for prim in stage.Traverse() {
             guard prim.IsValid() else { continue }
             let primPathString = stableOwnedString(describing: prim.GetPath().GetAsString())
             let primPath = USDPath(primPathString)
@@ -3235,8 +3235,8 @@ private extension OpenUSDStageRuntime {
                 if typeName == SdfValueTypeName.Asset {
                     var assetValue = SdfAssetPath()
                     guard attr.Get(&assetValue, UsdTimeCode.Default()) else { continue }
-                    let authored = stableOwnedString(describing: assetValue.GetAssetPath().pointee)
-                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath().pointee)
+                    let authored = stableOwnedString(describing: assetValue.GetAssetPath())
+                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath())
                     guard matches(authored) || matches(resolved) else { continue }
                     attrOverrides.append(USDSparseAttributeOverride(
                         name: attrName,
@@ -3318,7 +3318,7 @@ private extension OpenUSDStageRuntime {
             return false
         }
 
-        for prim in stage.Traverse().swiftSequence {
+        for prim in stage.Traverse() {
             guard prim.IsValid() else { continue }
             let primPath = stableOwnedString(describing: prim.GetPath().GetAsString())
             var attrOverrides: [USDSparseAttributeOverride] = []
@@ -3329,8 +3329,8 @@ private extension OpenUSDStageRuntime {
                 if typeName == SdfValueTypeName.Asset {
                     var assetValue = SdfAssetPath()
                     guard attr.Get(&assetValue, UsdTimeCode.Default()) else { continue }
-                    let authored = stableOwnedString(describing: assetValue.GetAssetPath().pointee)
-                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath().pointee)
+                    let authored = stableOwnedString(describing: assetValue.GetAssetPath())
+                    let resolved = stableOwnedString(describing: assetValue.GetResolvedPath())
                     guard matches(authored) || matches(resolved) else { continue }
                     attrOverrides.append(USDSparseAttributeOverride(
                         name: attrName,
@@ -3419,9 +3419,9 @@ private extension OpenUSDStageRuntime {
             if typeName == "asset" {
                 var assetPath = SdfAssetPath()
                 guard attr.Get(&assetPath, UsdTimeCode.Default()) else { return nil }
-                let authored = stableOwnedString(describing: assetPath.GetAssetPath().pointee)
+                let authored = stableOwnedString(describing: assetPath.GetAssetPath())
                 if authored.isEmpty {
-                    let resolved = stableOwnedString(describing: assetPath.GetResolvedPath().pointee)
+                    let resolved = stableOwnedString(describing: assetPath.GetResolvedPath())
                     return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
                 }
                 return .assetPath(USDAssetPath(authored))
@@ -4044,7 +4044,7 @@ private extension OpenUSDStageRuntime {
         var blockedMaterialInputCount = 0
         var deactivatedShaderCount = 0
 
-        for prim in stage.Traverse().swiftSequence {
+        for prim in stage.Traverse() {
             guard stableOwnedString(describing: prim.GetTypeName().GetString()) == "Material" else {
                 continue
             }
@@ -4052,7 +4052,7 @@ private extension OpenUSDStageRuntime {
             let hasMaterialXOutputs = mtlxOutputNames.contains { outputName in
                 prim.GetAttribute(TfToken(std.string(outputName))).IsValid()
             }
-            let hasMaterialXChildren = prim.GetChildren().swiftSequence.contains { child in
+            let hasMaterialXChildren = prim.GetChildren().contains { child in
                 guard stableOwnedString(describing: child.GetTypeName().GetString()) == "Shader" else {
                     return false
                 }
@@ -4077,7 +4077,7 @@ private extension OpenUSDStageRuntime {
                 blockedMaterialInputCount += 1
             }
 
-            for child in prim.GetChildren().swiftSequence {
+            for child in prim.GetChildren() {
                 guard stableOwnedString(describing: child.GetTypeName().GetString()) == "Shader" else {
                     continue
                 }
@@ -4202,7 +4202,7 @@ private func authorNormalMapDefaults(
     rootLayer: SdfLayer,
     normalizedShaderCount: inout Int
 ) {
-    for prim in stage.Traverse().swiftSequence {
+    for prim in stage.Traverse() {
         guard isShaderPrim(prim),
               shaderIdentifier(prim) == "UsdUVTexture" else { continue }
 
@@ -4271,7 +4271,7 @@ private func normalizeUsdUVTextureVarnameInputs(
     rootLayer: SdfLayer,
     normalizedShaderCount: inout Int
 ) {
-    for prim in stage.Traverse().swiftSequence {
+    for prim in stage.Traverse() {
         guard isShaderPrim(prim),
               shaderIdentifier(prim) == "UsdUVTexture" else { continue }
 
@@ -4654,7 +4654,7 @@ private func collectShaderInputTypeRewrites(
     shaderIdentifierPrefix: String,
     rewrites: inout [USDAttributeTypeRewrite]
 ) {
-    for prim in UsdPrimRange.AllPrims(stage.GetPseudoRoot()).swiftSequence {
+    for prim in UsdPrimRange.AllPrims(stage.GetPseudoRoot()) {
         guard isShaderPrim(prim),
               let identifier = shaderIdentifier(prim),
               identifier.hasPrefix(shaderIdentifierPrefix) else { continue }
@@ -4814,11 +4814,9 @@ private func convertVtValueToUSDValue(_ input: VtValue) -> USDValue? {
     }
     if value.IsHolding(T: SdfAssetPath.self) {
         let assetPath = value.Get() as SdfAssetPath
-        // .pointee: Swift 6.4 imports the const& getters as UnsafePointer
-        // projections (SWIFT_RETURNS_INDEPENDENT_VALUE annotation upstream).
-        let authored = String(assetPath.GetAssetPath().pointee)
+        let authored = String(assetPath.GetAssetPath())
         if authored.isEmpty {
-            let resolved = String(assetPath.GetResolvedPath().pointee)
+            let resolved = String(assetPath.GetResolvedPath())
             return resolved.isEmpty ? nil : .assetPath(USDAssetPath(resolved))
         }
         return .assetPath(USDAssetPath(authored))
