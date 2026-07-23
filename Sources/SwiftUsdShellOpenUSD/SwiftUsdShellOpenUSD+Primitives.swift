@@ -1,6 +1,6 @@
 import CxxStdlib
 import Foundation
-private import OpenUSD
+internal import OpenUSD
 import SwiftUsdShell
 
 // MARK: - Package-relative path helpers

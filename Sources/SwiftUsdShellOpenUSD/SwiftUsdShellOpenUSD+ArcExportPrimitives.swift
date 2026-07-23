@@ -1,6 +1,6 @@
 import CxxStdlib
 import Foundation
-private import OpenUSD
+internal import OpenUSD
 import SwiftUsdShell
 
 /// A typed request for OpenUSD's arc-preserving layer-stack flatten operation.

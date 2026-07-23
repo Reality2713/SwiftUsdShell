@@ -1,6 +1,6 @@
 import CxxStdlib
 import Foundation
-private import OpenUSD
+internal import OpenUSD
 import SwiftUsdShell
 
 /// Missing canonical feature providers on one `UsdVolParticleField`.
@@ -89,7 +89,9 @@ public extension OpenUSDStageRuntime {
         let sitePath = SdfPath(std.string(propertyPath.rawValue))
         guard sitePath.IsPropertyPath() else { return nil }
 
-        let propertyName = validationOwnedString(sitePath.GetName())
+        let propertyName = validationOwnedString(
+            USDOverlay.SdfPathName(sitePath)
+        )
         let inputPrefix = "inputs:"
         guard propertyName.hasPrefix(inputPrefix) else { return nil }
         let inputName = String(propertyName.dropFirst(inputPrefix.count))
@@ -101,14 +103,14 @@ public extension OpenUSDStageRuntime {
 
         var shaderIdentifier = TfToken()
         guard shader.GetShaderId(&shaderIdentifier) else { return nil }
-        let nodePtr = pxr.SdrRegistry.GetInstance()
-            .GetShaderNodeByIdentifier(shaderIdentifier)
-        guard nodePtr._isNonnull() else { return nil }
-        let node = USDOverlay.Dereference(nodePtr)
-        let propertyPtr = node.GetShaderInput(TfToken(std.string(inputName)))
-        guard propertyPtr._isNonnull() else { return nil }
-        let property = USDOverlay.Dereference(propertyPtr)
-        let targetType = property.GetTypeAsSdfType().GetSdfType()
+        var targetType = SdfValueTypeName()
+        guard USDOverlay.SdrShaderInputSdfType(
+            shaderIdentifier,
+            TfToken(std.string(inputName)),
+            &targetType
+        ) else {
+            return nil
+        }
         let attribute = prim.GetAttribute(TfToken(std.string(propertyName)))
         guard
             attribute.IsValid(),
@@ -120,7 +122,7 @@ public extension OpenUSDStageRuntime {
             return nil
         }
 
-        var timeSamples = std.vector<Double>()
+        var timeSamples = USDOverlay.Double_Vector()
         guard attribute.GetTimeSamples(&timeSamples), timeSamples.empty() else {
             return nil
         }
@@ -206,7 +208,7 @@ public extension OpenUSDStageRuntime {
             guard timeSampleCount <= 1 else { continue }
             var timeCode = UsdTimeCode.Default()
             if timeSampleCount == 1 {
-                var sampleTimes = std.vector<Double>()
+                var sampleTimes = USDOverlay.Double_Vector()
                 guard
                     sourceAttribute.GetTimeSamples(&sampleTimes),
                     sampleTimes.size() == 1
@@ -415,7 +417,9 @@ public extension OpenUSDStageRuntime {
                 for specHandle in prim.GetPrimStack() {
                     let spec = specHandle.pointee
                     for payload in spec.GetPayloadList().GetAppliedItems() {
-                        let assetPath = String(payload.GetAssetPath().pointee)
+                        let assetPath = validationOwnedString(
+                            USDOverlay.SdfPayloadAssetPath(payload)
+                        )
                         guard !assetPath.isEmpty else { continue }
                         let anchoredPath = validationOwnedString(
                             pxr.SdfComputeAssetPathRelativeToLayer(

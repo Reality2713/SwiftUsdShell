@@ -1,6 +1,6 @@
 import CxxStdlib
 import Foundation
-private import OpenUSD
+internal import OpenUSD
 import SwiftUsdShell
 
 /// A typed snapshot of one asset-valued USD attribute.

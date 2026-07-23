@@ -1,6 +1,6 @@
 import CxxStdlib
 import Foundation
-private import OpenUSD
+internal import OpenUSD
 import simd
 // Re-exported: the runtime's public API returns SwiftUsdShell contract types
 // (USDStageURL, USDPath, USDPrimSummary, ...). Re-exporting them means a
