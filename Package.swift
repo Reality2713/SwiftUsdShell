@@ -34,6 +34,7 @@ let package = Package(
             ],
             swiftSettings: [
                 .interoperabilityMode(.Cxx),
+                .enableUpcomingFeature("AccessLevelOnImport"),
             ]
         ),
         .testTarget(

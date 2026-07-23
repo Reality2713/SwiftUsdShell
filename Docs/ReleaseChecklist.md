@@ -73,27 +73,14 @@ Minor releases are appropriate for:
 
 Avoid breaking public DTO shapes without a deliberate major-version plan.
 
-## Binary slice coherence (xcframework distribution)
+## Binary distribution authority
 
-When producing the `SwiftUsdShell-binaries` / `SwiftUsd-binaries` xcframeworks
-via OpenUSDKit's `build_swiftusdshell_macos_arm64_binary_slice.sh`:
+Do not publish this repository independently. SwiftUsdShell source is locked
+into the atomic PXR Engine SDK produced by
+`Reality2713/SwiftUsd-binaries/.github/workflows/pxr-engine-sdk.yml`.
 
-- **Always build from a clean scratch** (`CLEAN_SCRATCH=1`, the default). A
-  reused incremental `.build` can ship a compiled `.swiftmodule` that is stale
-  relative to the freshly emitted `.swiftinterface`. Swift loads the compiled
-  module and ignores the interface, so the published binary advertises API in
-  its text interface that the loaded module does not actually contain. This shipped
-  once as `0.3.124-macos-arm64.2` (interface had `blockAttribute` / `usdaLiteral`,
-  module did not).
-- **Verify coherence before publishing:** the compiled module must expose every
-  symbol the interface advertises. Spot-check by compiling a trivial consumer
-  that references the newest additions against the produced xcframework.
-- Distribution follows a **single coordinated release train** across both binary
-  repos with **exact** pins only. See
-  `OpenUSDKit/docs/decisions/0003-binary-distribution-release-train.md` and
-  Reality2713/OpenUSDKit#13.
-- When an edit atom changes stage lifetime or persistence semantics, publish a
-  new coordinated train and validate it through at least one downstream app
-  scheme. `0.3.126-macos-arm64.3` is the reference case: cached stage ownership,
-  `save`, and `reload` were validated by Deconstructed's `InspectorUI` SwiftPM
-  target and macOS Xcode app scheme.
+That workflow owns clean-scratch compilation, exact toolchain identity,
+Swiftmodule/interface coherence, one Shell-owned OpenUSD implementation,
+combined and `-ObjC` host linkage, behavior fixtures, attestations, and the one
+consumer-visible semantic version. Historical coordinated-train guidance and
+platform-encoded tags are retained only as incident history.

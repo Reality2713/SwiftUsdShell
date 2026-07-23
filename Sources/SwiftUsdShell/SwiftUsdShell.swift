@@ -1596,6 +1596,65 @@ public enum USDEditRequest: Hashable, Sendable, Codable {
     case save(stageURL: USDStageURL)
 }
 
+/// One canonical OpenUSD repair authored as part of a coherent sparse edit
+/// layer transaction. The OpenUSD runtime applies the full operation array
+/// inside one `SdfChangeBlock`, so composition invalidation and notices are
+/// deferred until the native batch is complete.
+public enum USDStageRepairOperation: Hashable, Sendable, Codable {
+    case setUpAxis(USDToken)
+    case setMetersPerUnit(Double)
+    case setDefaultPrim(USDPath)
+    case applySchema(primPath: USDPath, schemaName: USDToken)
+    case removeSchema(primPath: USDPath, schemaName: USDToken)
+    case setGeomSubsetFamilyName(primPath: USDPath, familyName: USDToken)
+    case setGeomSubsetFamilyType(primPath: USDPath, familyName: USDToken, familyType: USDToken)
+    case setDoubleSided(primPath: USDPath, value: Bool)
+    case setSubdivisionScheme(primPath: USDPath, scheme: USDToken)
+    case bindMaterial(primPath: USDPath, materialPath: USDPath, strength: USDMaterialBindingStrength)
+    case generatePlanarUVs(primPath: USDPath)
+    case rewriteAttributeType(primPath: USDPath, attributeName: String, targetTypeName: String)
+    case flattenNestedShader(parentPath: USDPath, childPath: USDPath)
+    case inlineMaterialInputs(materialPath: USDPath)
+}
+
+/// A native OpenUSD repair batch that opens the source stage once and exports
+/// one sparse edit layer at `outputURL`.
+public struct USDStageRepairBatchRequest: Hashable, Sendable, Codable {
+    public var stageURL: USDStageURL
+    public var outputURL: USDStageURL
+    public var operations: [USDStageRepairOperation]
+
+    public init(
+        stageURL: USDStageURL,
+        outputURL: USDStageURL,
+        operations: [USDStageRepairOperation]
+    ) {
+        self.stageURL = stageURL
+        self.outputURL = outputURL
+        self.operations = operations
+    }
+}
+
+/// Exact accounting emitted by one native OpenUSD repair batch.
+public struct USDStageRepairBatchResult: Hashable, Sendable, Codable {
+    public var appliedCount: Int
+    public var skippedCount: Int
+    public var changedPrimPaths: [USDPath]
+    public var warnings: [String]
+
+    public init(
+        appliedCount: Int,
+        skippedCount: Int,
+        changedPrimPaths: [USDPath] = [],
+        warnings: [String] = []
+    ) {
+        self.appliedCount = appliedCount
+        self.skippedCount = skippedCount
+        self.changedPrimPaths = changedPrimPaths
+        self.warnings = warnings
+    }
+}
+
 public struct USDEditResult: Hashable, Sendable, Codable {
     public var refreshHints: USDEditRefreshHints
     public var diagnostics: [USDDiagnostic]
