@@ -119,7 +119,7 @@ public extension OpenUSDStageRuntime {
                         )
                     )
                 }
-                for child in prim.GetChildren() {
+                for child in prim.GetChildren().swiftSequence {
                     visit(child)
                 }
             }
@@ -220,7 +220,7 @@ public extension OpenUSDStageRuntime {
                         }
                     }
                 }
-                for child in prim.GetChildren() {
+                for child in prim.GetChildren().swiftSequence {
                     visit(child)
                 }
             }

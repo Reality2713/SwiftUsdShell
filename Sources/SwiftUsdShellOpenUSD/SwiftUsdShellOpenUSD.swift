@@ -3878,7 +3878,7 @@ private extension OpenUSDStageRuntime {
                         var primvar = UsdGeomPrimvarsAPI(editPrim).CreatePrimvar(
                             TfToken("st"),
                             SdfValueTypeName.TexCoord2fArray,
-                            pxr.UsdGeomTokens.vertex
+                            TfToken("vertex")
                         )
                         guard primvar.GetAttr().Set(values, UsdTimeCode.Default()) else {
                             skip("Could not author planar UVs at \(primPath.rawValue)")
