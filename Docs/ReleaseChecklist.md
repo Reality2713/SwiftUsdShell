@@ -75,12 +75,12 @@ Avoid breaking public DTO shapes without a deliberate major-version plan.
 
 ## Binary distribution authority
 
-Do not publish this repository independently. SwiftUsdShell source is locked
-into the atomic PXR Engine SDK produced by
-`Reality2713/SwiftUsd-binaries/.github/workflows/pxr-engine-sdk.yml`.
+Publish this repository only when the Shell API or implementation source
+changes. Then lock that exact source tag in
+`Reality2713/SwiftUsd-binaries/.github/workflows/binary-release.yml`.
 
 That workflow owns clean-scratch compilation, exact toolchain identity,
 Swiftmodule/interface coherence, one Shell-owned OpenUSD implementation,
 combined and `-ObjC` host linkage, behavior fixtures, attestations, and the one
-consumer-visible semantic version. Historical coordinated-train guidance and
-platform-encoded tags are retained only as incident history.
+runtime/plugin release. A toolchain-only rebuild reuses this source revision
+and does not create a new Shell source release.
