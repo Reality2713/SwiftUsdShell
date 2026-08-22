@@ -137,6 +137,38 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
 
     public init() {}
 
+    /// Blocks one authored attribute value using canonical
+    /// `UsdAttribute::Block()` semantics.
+    ///
+    /// This synchronous primitive exists for session-edit clients whose undo
+    /// snapshot and USD mutation must remain inside one synchronous critical
+    /// section. Product policy and history remain outside the Shell.
+    public func blockAttribute(
+        stageURL: USDStageURL,
+        primPath: USDPath,
+        attributeName: USDToken
+    ) throws -> USDEditResult {
+        try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
+            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+            guard prim.IsValid() else {
+                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+            }
+            let attr = prim.GetAttribute(TfToken(std.string(attributeName.rawValue)))
+            guard attr.IsValid() else {
+                throw SwiftUsdShellError.invalidValue(
+                    "Missing attribute \(attributeName.rawValue) on \(primPath.rawValue)"
+                )
+            }
+            attr.Block()
+            return USDEditResult(
+                refreshHints: USDEditRefreshHints(
+                    refreshInspector: true,
+                    changedPrimPaths: [primPath]
+                )
+            )
+        }
+    }
+
     public func inspectStage(_ request: USDStageInspectionRequest) async throws -> USDStageInspection {
         return try withStage(for: request.stageURL, loadPolicy: request.options.loadPolicy) { stage in
             let metadata = stageMetadata(stage)
@@ -454,17 +486,11 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
             }
 
         case .blockAttribute(let stageURL, let primPath, let attributeName):
-            return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
-                let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-                guard prim.IsValid() else {
-                    throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-                }
-                let attr = prim.GetAttribute(TfToken(std.string(attributeName.rawValue)))
-                if attr.IsValid() {
-                    attr.Block()
-                }
-                return USDEditResult(refreshHints: USDEditRefreshHints(refreshInspector: true))
-            }
+            return try blockAttribute(
+                stageURL: stageURL,
+                primPath: primPath,
+                attributeName: attributeName
+            )
 
         case .setActive(let stageURL, let primPath, let active):
             return try self.withStage(for: stageURL, loadPolicy: .loadAll) { stage in
