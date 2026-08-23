@@ -148,25 +148,54 @@ public final class OpenUSDStageRuntime: @unchecked Sendable {
         primPath: USDPath,
         attributeName: USDToken
     ) throws -> USDEditResult {
-        try withStage(for: stageURL, loadPolicy: .loadAll) { stage in
-            let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
-            guard prim.IsValid() else {
-                throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
-            }
-            let attr = prim.GetAttribute(TfToken(std.string(attributeName.rawValue)))
-            guard attr.IsValid() else {
-                throw SwiftUsdShellError.invalidValue(
-                    "Missing attribute \(attributeName.rawValue) on \(primPath.rawValue)"
-                )
-            }
-            attr.Block()
-            return USDEditResult(
-                refreshHints: USDEditRefreshHints(
-                    refreshInspector: true,
-                    changedPrimPaths: [primPath]
-                )
+        // Session clients prepare the attribute spec through USDKit immediately
+        // before calling this OpenUSD primitive. A cached stage can therefore be
+        // older than the on-disk edit layer: it may miss a newly prepared input,
+        // or retain an earlier input only in memory. Open a fresh stage for this
+        // cross-runtime mutation and do not leave it cached for a later call.
+        stageCacheLock.lock()
+        defer {
+            stageRefsByOpenKey.removeAll()
+            stageCache.Clear()
+            stageCacheLock.unlock()
+        }
+
+        stageRefsByOpenKey.removeAll()
+        stageCache.Clear()
+
+        let stageRef = UsdStage.Open(
+            std.string(stageURL.url.path),
+            UsdStage.InitialLoadSet.LoadAll
+        )
+        guard stageRef._isNonnull() else {
+            throw SwiftUsdShellError.stageOpenFailed(stageURL, diagnostic: nil)
+        }
+        let stage = USDOverlay.Dereference(stageRef)
+        let prim = stage.GetPrimAtPath(SdfPath(std.string(primPath.rawValue)))
+        guard prim.IsValid() else {
+            throw SwiftUsdShellError.primNotFound(stageURL: stageURL, primPath: primPath)
+        }
+        let attr = prim.GetAttribute(TfToken(std.string(attributeName.rawValue)))
+        guard attr.IsValid() else {
+            throw SwiftUsdShellError.invalidValue(
+                "Missing attribute \(attributeName.rawValue) on \(primPath.rawValue)"
             )
         }
+        attr.Block()
+
+        let rootLayerHandle = stage.GetRootLayer()
+        guard Bool(rootLayerHandle), USDOverlay.Dereference(rootLayerHandle).Save(false) else {
+            throw SwiftUsdShellError.saveFailed(
+                stageURL,
+                diagnostic: "attribute-block"
+            )
+        }
+        return USDEditResult(
+            refreshHints: USDEditRefreshHints(
+                refreshInspector: true,
+                changedPrimPaths: [primPath]
+            )
+        )
     }
 
     public func inspectStage(_ request: USDStageInspectionRequest) async throws -> USDStageInspection {
